@@ -1,0 +1,49 @@
+# === Segredos e cofre (NUNCA versionar) ===
+vault/
+secrets/
+*.env
+.env
+.env.*
+*.key
+*.pem
+id_*
+*_rsa
+*_ed25519
+credentials*
+SENHAS*.md
+
+# === Backups e dumps ===
+*.tar.zst
+*.tar.gz
+*.tgz
+*.sql
+*.sql.gz
+*.wpress
+backups/
+
+# === Binários compilados ===
+/vpsrun
+/vpsrun-audit
+*.exe
+/bin/
+/dist/
+
+# === Go ===
+/vendor/
+*.test
+*.out
+go.work
+go.work.sum
+
+# === Logs e temporários ===
+*.log
+tmp/
+.tmp/
+*.swp
+*~
+
+# === Sistema operacional / IDE ===
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
