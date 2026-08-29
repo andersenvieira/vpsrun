@@ -14,6 +14,16 @@ import (
 )
 
 func main() {
+	// Subcomandos não-interativos (antes do flag.Parse).
+	if len(os.Args) > 1 {
+		switch os.Args[1] {
+		case "vault":
+			os.Exit(runVaultCLI(os.Args[2:]))
+		case "tuning":
+			os.Exit(runTuningCLI(os.Args[2:]))
+		}
+	}
+
 	var (
 		showVersion = flag.Bool("version", false, "mostra a versão e sai")
 		selfcheck   = flag.Bool("selfcheck", false, "valida o ambiente (não-interativo) e sai")

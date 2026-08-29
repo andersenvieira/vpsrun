@@ -401,6 +401,19 @@ func openVaultAction(m *model) tea.Cmd {
 	return nil
 }
 
+func tuningHelp(m *model) tea.Cmd {
+	m.outputTitle = "Tuning — aplicar e reverter"
+	m.output = "As telas acima só MOSTRAM o estado (seguro).\n\n" +
+		"Para aplicar ou reverter (altera o sistema, exige root):\n\n" +
+		okStyle.Render("  sudo vpsrun tuning rede apply") + "\n" +
+		okStyle.Render("  sudo vpsrun tuning ram  apply") + "\n" +
+		okStyle.Render("  sudo vpsrun tuning cpu  apply") + "\n\n" +
+		"Cada apply faz backup dos valores atuais; 'revert' restaura.\n" +
+		"Áreas: rede (BBR/fq/buffers), ram (swappiness/cache), cpu (governor)."
+	m.state = stOutput
+	return nil
+}
+
 func placeholder(desc string) func(*model) tea.Cmd {
 	return func(m *model) tea.Cmd {
 		m.outputTitle = "Em construção"
@@ -433,8 +446,11 @@ func buildMenu() *node {
 		}},
 		{title: "5 · Tuning & Performance", children: []*node{
 			{title: "Uso de disco", action: runCmdAction("Disco", "df", "-h", "/")},
-			{title: "Memória", action: runCmdAction("Memória", "free", "-h")},
-			{title: "Tuning profundo (RAM/CPU/rede)", action: placeholder("scripts/tuning.sh")},
+			{title: "Memória / zram (mostrar)", action: runScriptAction("Tuning RAM", "tuning-ram.sh", "show")},
+			{title: "Rede / BBR (mostrar)", action: runScriptAction("Tuning Rede", "tuning-rede.sh", "show")},
+			{title: "CPU / governor (mostrar)", action: runScriptAction("Tuning CPU", "tuning-cpu.sh", "show")},
+			{title: "Limpeza — relatório de espaço", action: runScriptAction("Limpeza (relatório)", "limpeza-relatorio.sh")},
+			{title: "Como aplicar (apply/revert)", action: tuningHelp},
 		}},
 		{title: "6 · Updates Guiados", action: placeholder("módulo updates (inventário)")},
 		{title: "7 · Saúde do Sistema", action: runScriptAction("Saúde do Sistema", "verificar-saude.sh")},
