@@ -36,7 +36,7 @@ pack() { # $1=os $2=arch $3=ext
 
   local kit="$DIST/vpsrun-kit-$VERSION-$os-$arch.tar.zst"
   if command -v zstd >/dev/null 2>&1; then
-    tar -C "$staging" -cf - . | zstd -19 -q -o "$kit"
+    tar -C "$staging" -cf - . | zstd -19 -q -f -o "$kit"
   else
     kit="${kit%.zst}.gz"; echo "   (zstd ausente — usando gzip)"
     tar -C "$staging" -czf "$kit" .
