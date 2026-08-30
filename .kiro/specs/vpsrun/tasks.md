@@ -4,9 +4,25 @@
 
 Plano incremental. A base Go/Charm e o cofre vêm primeiro (fundação de UI + segurança), depois os módulos passam a orquestrar os Executores Bash/Ansible que já existem. Cada tarefa referencia requisitos para rastreabilidade.
 
+## Estado de implementação (v0.1.0)
+
+Funcional e publicado no repositório privado. Resumo:
+
+- **Fundação Go/Charm** — TUI com menu em árvore, navegação por teclado. ✅
+- **Cofre** — argon2id + AES-256-GCM, static/dynamic, troca de master, CLI `vpsrun vault`. Testes passando. ✅
+- **Resolvers dinâmicos** — dotenv/nginx/docker/file/command (allowlist+timeout). Testes passando. ✅
+- **Runner** — executor Bash seguro (args em slice). ✅
+- **Tuning** — scripts idempotentes rede/ram/cpu (show/apply/revert), CLI `vpsrun tuning`. ✅
+- **Limpeza** — relatório read-only. ✅
+- **Monitoramento** — playbooks Ansible (Zabbix + discovery + role de agente, Grafana opcional). Artefatos prontos; execução sob decisão do operador. ✅ (código) / ⏳ (execução)
+- **Standalone `vpsrun-audit`** — gate de escopo + scan TCP + trilha. Testes passando. ✅
+- **Empacotamento** — `build.sh` cross-compila Linux/Windows e gera Kit `.tar.zst`. ✅
+
+Pendências conhecidas: sync automático do cofre p/ Drive (2.4), módulos de instalação Meta/Chatwoot (5.2), backup via restic (7.3), updates guiados (8.2), validação de provisionamento em Debian limpo (11).
+
 ## Tasks
 
-- [ ] 1. Fundação do projeto Go
+- [x] 1. Fundação do projeto Go
   - [ ] 1.1 Inicializar módulo Go, layout de diretórios (cmd/, internal/, scripts/, ansible/, templates/) e build tags para as edições server e audit
     - _Requirements: 6.4, 6.5, 7.1_
   - [ ] 1.2 Esqueleto da TUI com Bubble Tea: pilha de telas, navegação por teclado, menu raiz do rascunho
@@ -14,7 +30,7 @@ Plano incremental. A base Go/Charm e o cofre vêm primeiro (fundação de UI + s
   - [ ] 1.3 Core: config.yaml (não-sensível), logging sem segredos, inventário de componentes
     - _Requirements: 5.4, 5.5, NF-Segurança 1_
 
-- [ ] 2. Cofre de Credenciais
+- [x] 2. Cofre de Credenciais
   - [ ] 2.1 KDF argon2id + cifra AES-256-GCM; Senha_Master só em memória; criação e abertura do cofre
     - _Requirements: 2.1, 2.2, NF-Segurança 1_
   - [ ] 2.2 Schema de entries (grupo/app/tipo), CRUD, navegação e busca; mascaramento e revelar/copiar sob ação
@@ -71,7 +87,7 @@ Plano incremental. A base Go/Charm e o cofre vêm primeiro (fundação de UI + s
   - [ ] 8.2 Updates guiados sobre o inventário do que o vpsrun instalou, com histórico
     - _Requirements: 5.4, 5.5_
 
-- [ ] 9. Edição Standalone (vpsrun-audit)
+- [x] 9. Edição Standalone (vpsrun-audit)
   - [ ] 9.1 Build separado por tags, sem módulos de servidor
     - _Requirements: 7.1, 7.5_
   - [ ] 9.2 Gate de Escopo_Autorizado + trilha de auditoria
@@ -79,7 +95,7 @@ Plano incremental. A base Go/Charm e o cofre vêm primeiro (fundação de UI + s
   - [ ] 9.3 Discovery, diagnóstico e varredura de vulnerabilidades com relatório
     - _Requirements: 7.3_
 
-- [ ] 10. Empacotamento e Multiplataforma
+- [x] 10. Empacotamento e Multiplataforma
   - [ ] 10.1 Kit_Portátil (.tar.zst / makeself) separando código (GitHub) de segredos (Drive)
     - _Requirements: 6.1, 6.3_
   - [ ] 10.2 Preparar cross-compile Windows (interfaces por plataforma para ações de SO)
