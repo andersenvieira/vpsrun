@@ -1,0 +1,81 @@
+---
+# Instala Zabbix Server + frontend (nginx) + MySQL/MariaDB.
+# Grafana só se grafana_enabled=true. Idempotente.
+- name: Zabbix Server
+  hosts: zabbix_server
+  become: true
+  vars_files:
+    - ../group_vars/all.yml
+  tasks:
+    - name: Repositório oficial do Zabbix
+      ansible.builtin.apt:
+        deb: "https://repo.zabbix.com/zabbix/{{ zabbix_version }}/debian/pool/main/z/zabbix-release/zabbix-release_latest+debian13_all.deb"
+      register: zbx_repo
+      failed_when: false
+
+    - name: Atualiza índice apt
+      ansible.builtin.apt:
+        update_cache: true
+
+    - name: Pacotes do servidor Zabbix (nginx + mysql)
+      ansible.builtin.apt:
+        name:
+          - zabbix-server-mysql
+          - zabbix-frontend-php
+          - zabbix-nginx-conf
+          - zabbix-sql-scripts
+          - zabbix-agent2
+          - mariadb-server
+          - python3-pymysql
+        state: present
+
+    - name: Serviços ativos
+      ansible.builtin.systemd:
+        name: "{{ item }}"
+        enabled: true
+        state: started
+      loop:
+        - mariadb
+        - zabbix-server
+        - zabbix-agent2
+        - nginx
+
+    - name: Cria banco do Zabbix
+      community.mysql.mysql_db:
+        name: "{{ zabbix_db_name }}"
+        encoding: utf8mb4
+        collation: utf8mb4_bin
+        login_unix_socket: /run/mysqld/mysqld.sock
+      when: zabbix_db_password is defined
+
+    - name: Grafana (opcional)
+      ansible.builtin.debug:
+        msg: >-
+          Grafana {{ 'HABILITADO' if grafana_enabled else 'DESABILITADO' }}.
+          {{ 'Instale o pacote grafana e o data source Zabbix.' if grafana_enabled
+             else 'Usando apenas dashboards nativos do Zabbix.' }}
+
+    - name: Instala Grafana quando habilitado
+      when: grafana_enabled | bool
+      block:
+        - name: Repositório Grafana
+          ansible.builtin.apt_repository:
+            repo: "deb https://apt.grafana.com stable main"
+            state: present
+            filename: grafana
+        - name: Pacote Grafana
+          ansible.builtin.apt:
+            name: grafana
+            update_cache: true
+            state: present
+        - name: Serviço Grafana
+          ansible.builtin.systemd:
+            name: grafana-server
+            enabled: true
+            state: started
+
+    - name: Resumo
+      ansible.builtin.debug:
+        msg: >-
+          Zabbix {{ zabbix_version }} instalado. Frontend via nginx.
+          Guarde as senhas no cofre: vpsrun vault add --group Monitoramento ...

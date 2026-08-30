@@ -401,6 +401,61 @@ func openVaultAction(m *model) tea.Cmd {
 	return nil
 }
 
+func monitorPrereqs(m *model) tea.Cmd {
+	m.outputTitle = "Monitoramento — pré-requisitos"
+	m.output = "Verificando…"
+	m.state = stOutput
+	return func() tea.Msg {
+		var b strings.Builder
+		for _, tool := range []string{"ansible-playbook", "nmap", "docker"} {
+			out, err := runner.RunCommand(5*time.Second, "bash", "-c", "command -v "+tool)
+			if err != nil || strings.TrimSpace(out) == "" {
+				b.WriteString("  [faltando] " + tool + "  → sudo apt-get install -y " + pkgFor(tool) + "\n")
+			} else {
+				b.WriteString("  [ok]       " + tool + "  (" + strings.TrimSpace(out) + ")\n")
+			}
+		}
+		return actionResultMsg{title: "Monitoramento — pré-requisitos", output: b.String()}
+	}
+}
+
+func pkgFor(tool string) string {
+	switch tool {
+	case "ansible-playbook":
+		return "ansible"
+	case "nmap":
+		return "nmap"
+	default:
+		return tool
+	}
+}
+
+func monitorHelp(playbook, desc string) func(*model) tea.Cmd {
+	return func(m *model) tea.Cmd {
+		m.outputTitle = "Monitoramento — como executar"
+		m.output = desc + "\n\n" +
+			"Execução (manual, sob sua decisão):\n\n" +
+			okStyle.Render("  cd ~/Documents/VPSRUN/ansible") + "\n" +
+			okStyle.Render("  ansible-playbook -i inventory.ini playbooks/"+playbook) + "\n\n" +
+			"Edite inventory.ini e group_vars/all.yml antes.\n" +
+			"As senhas geradas devem ir para o cofre (vpsrun vault add ...)."
+		m.state = stOutput
+		return nil
+	}
+}
+
+func grafanaHelp(m *model) tea.Cmd {
+	m.outputTitle = "Grafana (opcional)"
+	m.output = "O Grafana é OPCIONAL — o Zabbix já entrega os gráficos nativamente.\n\n" +
+		"Em " + okStyle.Render("ansible/group_vars/all.yml") + ":\n" +
+		"  grafana_enabled: false   → só Zabbix (padrão)\n" +
+		"  grafana_enabled: true    → instala Grafana + data source Zabbix\n\n" +
+		"Alternar depois é só mudar o valor e rodar o playbook de novo —\n" +
+		"nada é reinstalado, e desabilitar mantém os gráficos no Zabbix."
+	m.state = stOutput
+	return nil
+}
+
 func tuningHelp(m *model) tea.Cmd {
 	m.outputTitle = "Tuning — aplicar e reverter"
 	m.output = "As telas acima só MOSTRAM o estado (seguro).\n\n" +
@@ -436,9 +491,10 @@ func buildMenu() *node {
 		}},
 		{title: "2 · Cofre de Credenciais 🔒", action: openVaultAction},
 		{title: "3 · Monitoramento (Zabbix + Ansible)", children: []*node{
-			{title: "Instalar Zabbix (server/frontend/db)", action: placeholder("ansible/zabbix")},
-			{title: "Grafana (opcional)", action: placeholder("ansible/grafana")},
-			{title: "Descoberta de rede + agentes", action: placeholder("ansible/discovery")},
+			{title: "Verificar pré-requisitos (ansible/nmap)", action: monitorPrereqs},
+			{title: "Instalar Zabbix — como executar", action: monitorHelp("zabbix-server.yml", "Instala Zabbix server + frontend + DB.")},
+			{title: "Descoberta de rede + agentes — como executar", action: monitorHelp("discovery.yml", "Varre a rede, detecta SO e instala agentes.")},
+			{title: "Grafana (opcional) — como alternar", action: grafanaHelp},
 		}},
 		{title: "4 · Backup & Restauração", children: []*node{
 			{title: "Rodar backup agora", action: runScriptAction("Backup", "backup-vps.sh")},

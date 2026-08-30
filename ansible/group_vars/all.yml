@@ -1,0 +1,19 @@
+---
+# Variáveis globais do módulo de monitoramento vpsrun.
+
+# Versão do Zabbix (linha estável).
+zabbix_version: "7.0"
+
+# Servidor Zabbix que os agentes vão reportar (IP/hostname).
+zabbix_server_ip: "127.0.0.1"
+
+# Grafana é OPCIONAL. false = só Zabbix (dashboards nativos).
+grafana_enabled: false
+
+# Banco do Zabbix (a senha real deve ir para o cofre do vpsrun).
+zabbix_db_name: "zabbix"
+zabbix_db_user: "zabbix"
+# zabbix_db_password: definido em tempo de execução / cofre (não versionar).
+
+# Rede a varrer na descoberta (CIDR).
+discovery_cidr: "192.168.0.0/24"

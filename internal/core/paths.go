@@ -45,3 +45,24 @@ func VaultExists() bool {
 	_, err := os.Stat(VaultPath())
 	return err == nil
 }
+
+// AuditScopePath é o arquivo do Escopo_Autorizado da edição standalone.
+func AuditScopePath() string {
+	if p := os.Getenv("VPSRUN_AUDIT_SCOPE"); p != "" {
+		return p
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "audit-scope.txt"
+	}
+	return filepath.Join(home, ".config", "vpsrun", "audit-scope.txt")
+}
+
+// AuditLogPath é a trilha de auditoria da edição standalone.
+func AuditLogPath() string {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "audit-log.txt"
+	}
+	return filepath.Join(home, ".config", "vpsrun", "audit-log.txt")
+}

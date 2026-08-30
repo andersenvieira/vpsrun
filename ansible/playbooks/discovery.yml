@@ -1,0 +1,40 @@
+---
+# Descoberta de rede + instalação autônoma do agente Zabbix.
+#
+# Fase 1: varre o CIDR e monta o inventário dinâmico (hosts vivos com SSH).
+# Fase 2: aplica a role zabbix_agent nos hosts descobertos (idempotente).
+- name: Descoberta de rede
+  hosts: localhost
+  gather_facts: false
+  vars_files:
+    - ../group_vars/all.yml
+  tasks:
+    - name: Varre o CIDR em busca de hosts com SSH (22/tcp)
+      ansible.builtin.command: "nmap -n -p22 --open -oG - {{ discovery_cidr }}"
+      register: nmap_out
+      changed_when: false
+      failed_when: false
+
+    - name: Extrai IPs vivos
+      ansible.builtin.set_fact:
+        discovered_hosts: "{{ nmap_out.stdout | regex_findall('Host: ([0-9.]+)') }}"
+      when: nmap_out.stdout is defined
+
+    - name: Adiciona hosts descobertos ao grupo em memória
+      ansible.builtin.add_host:
+        name: "{{ item }}"
+        groups: discovered
+      loop: "{{ discovered_hosts | default([]) }}"
+
+    - name: Relatório da descoberta
+      ansible.builtin.debug:
+        msg: "Hosts com SSH: {{ discovered_hosts | default([]) }}"
+
+- name: Instala agente Zabbix nos descobertos
+  hosts: discovered
+  become: true
+  gather_facts: true          # detecta o SO automaticamente
+  vars_files:
+    - ../group_vars/all.yml
+  roles:
+    - zabbix_agent

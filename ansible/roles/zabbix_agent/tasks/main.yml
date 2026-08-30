@@ -1,0 +1,36 @@
+---
+# Role idempotente do agente Zabbix. Detecta a família do SO e instala o
+# agente adequado, apontando para o servidor definido em group_vars.
+- name: Instala agente (Debian/Ubuntu)
+  when: ansible_os_family == "Debian"
+  ansible.builtin.apt:
+    name: zabbix-agent2
+    update_cache: true
+    state: present
+
+- name: Instala agente (RedHat/CentOS/Rocky)
+  when: ansible_os_family == "RedHat"
+  ansible.builtin.yum:
+    name: zabbix-agent2
+    state: present
+
+- name: Configura o servidor de destino
+  ansible.builtin.lineinfile:
+    path: /etc/zabbix/zabbix_agent2.conf
+    regexp: '^Server='
+    line: "Server={{ zabbix_server_ip }}"
+    create: false
+  notify: reiniciar zabbix-agent2
+
+- name: Hostname do agente
+  ansible.builtin.lineinfile:
+    path: /etc/zabbix/zabbix_agent2.conf
+    regexp: '^Hostname='
+    line: "Hostname={{ inventory_hostname }}"
+  notify: reiniciar zabbix-agent2
+
+- name: Garante o serviço ativo
+  ansible.builtin.systemd:
+    name: zabbix-agent2
+    enabled: true
+    state: started
