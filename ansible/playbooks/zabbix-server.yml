@@ -159,55 +159,138 @@
         timeout: 60
       failed_when: false
 
-    # ── Autoregistro: cria host group + ação que adota agentes ativos ────────
-    - name: Configura autoregistro de agentes (via API)
+    # ── Autoregistro via API JSON-RPC (sem depender da coleção community.zabbix) ──
+    - name: Configura autoregistro de agentes (API do Zabbix 7.0)
       when: zabbix_autoregistration_enabled | bool
+      vars:
+        _api: "{{ zabbix_api_url }}/api_jsonrpc.php"
+        _hdr: { Content-Type: "application/json-rpc" }
       block:
         - name: Aguarda a API do Zabbix responder
           ansible.builtin.uri:
-            url: "{{ zabbix_api_url }}/api_jsonrpc.php"
+            url: "{{ _api }}"
+            method: POST
+            body_format: json
+            body: { jsonrpc: "2.0", method: "apiinfo.version", id: 1 }
+            headers: "{{ _hdr }}"
+          register: zbx_ver
+          retries: 30
+          delay: 5
+          until: zbx_ver.status == 200 and zbx_ver.json.result is defined
+
+        - name: Login na API (Zabbix 7.0 usa 'username' + token Bearer)
+          ansible.builtin.uri:
+            url: "{{ _api }}"
             method: POST
             body_format: json
             body:
               jsonrpc: "2.0"
-              method: "apiinfo.version"
-              id: 1
-            headers:
-              Content-Type: "application/json-rpc"
-          register: zbx_api_ping
-          retries: 30
-          delay: 5
-          until: zbx_api_ping.status == 200 and zbx_api_ping.json.result is defined
+              method: "user.login"
+              params: { username: "{{ zabbix_api_user }}", password: "{{ zabbix_api_password }}" }
+              id: 2
+            headers: "{{ _hdr }}"
+          register: zbx_login
+          no_log: true
+          failed_when: zbx_login.json.result is not defined
 
-        - name: Garante o host group padrão de descobertos
-          community.zabbix.zabbix_hostgroup:
-            host_groups:
-              - "{{ zabbix_default_hostgroup }}"
-          vars: &zbx_api
-            ansible_zabbix_url_path: ""
-            ansible_host: "{{ zabbix_server_ip }}"
-            zabbix_api_server_url: "{{ zabbix_api_url }}"
-            zabbix_api_login_user: "{{ zabbix_api_user }}"
-            zabbix_api_login_pass: "{{ zabbix_api_password }}"
+        - name: Guarda o token de sessão
+          ansible.builtin.set_fact:
+            _auth: "{{ _hdr | combine({'Authorization': 'Bearer ' + zbx_login.json.result}) }}"
+          no_log: true
 
-        - name: Cria a ação de autoregistro (adiciona host + linka template Linux)
-          community.zabbix.zabbix_action:
-            name: "vpsrun • autoregistro Linux"
-            event_source: "auto_registration"
-            status: enabled
-            conditions:
-              - type: host_metadata
-                operator: like
-                value: "{{ zabbix_host_metadata }}"
-            operations:
-              - type: add_host
-              - type: add_to_host_group
-                host_groups:
-                  - "{{ zabbix_default_hostgroup }}"
-              - type: link_to_template
-                templates:
-                  - "{{ zabbix_linux_template }}"
-          vars: *zbx_api
+        - name: Verifica se o host group já existe
+          ansible.builtin.uri:
+            url: "{{ _api }}"
+            method: POST
+            body_format: json
+            body:
+              jsonrpc: "2.0"
+              method: "hostgroup.get"
+              params: { filter: { name: ["{{ zabbix_default_hostgroup }}"] } }
+              id: 3
+            headers: "{{ _auth }}"
+          register: zbx_hg
+          no_log: true
+
+        - name: Cria o host group se faltar
+          ansible.builtin.uri:
+            url: "{{ _api }}"
+            method: POST
+            body_format: json
+            body:
+              jsonrpc: "2.0"
+              method: "hostgroup.create"
+              params: { name: "{{ zabbix_default_hostgroup }}" }
+              id: 4
+            headers: "{{ _auth }}"
+          register: zbx_hg_new
+          when: zbx_hg.json.result | length == 0
+          no_log: true
+
+        - name: Resolve o groupid
+          ansible.builtin.set_fact:
+            _gid: "{{ zbx_hg.json.result[0].groupid if (zbx_hg.json.result | length > 0) else zbx_hg_new.json.result.groupids[0] }}"
+
+        - name: Busca o templateid do 'Linux by Zabbix agent active'
+          ansible.builtin.uri:
+            url: "{{ _api }}"
+            method: POST
+            body_format: json
+            body:
+              jsonrpc: "2.0"
+              method: "template.get"
+              params: { filter: { host: ["{{ zabbix_linux_template }}"] } }
+              id: 5
+            headers: "{{ _auth }}"
+          register: zbx_tpl
+          no_log: true
+
+        - name: Monta as operações da ação (linka template só se achou)
+          ansible.builtin.set_fact:
+            _tid: "{{ zbx_tpl.json.result[0].templateid if (zbx_tpl.json.result | length > 0) else '' }}"
+            _ops: >-
+              {{ [ {'operationtype': 2},
+                   {'operationtype': 4, 'opgroup': [{'groupid': _gid}]} ]
+                 + ([{'operationtype': 6, 'optemplate': [{'templateid': zbx_tpl.json.result[0].templateid}]}]
+                    if (zbx_tpl.json.result | length > 0) else []) }}
+
+        - name: Verifica se a ação de autoregistro já existe
+          ansible.builtin.uri:
+            url: "{{ _api }}"
+            method: POST
+            body_format: json
+            body:
+              jsonrpc: "2.0"
+              method: "action.get"
+              params: { filter: { name: ["vpsrun • autoregistro Linux"] } }
+              id: 6
+            headers: "{{ _auth }}"
+          register: zbx_act
+          no_log: true
+
+        - name: Cria a ação de autoregistro (add host + grupo + template)
+          ansible.builtin.uri:
+            url: "{{ _api }}"
+            method: POST
+            body_format: json
+            body:
+              jsonrpc: "2.0"
+              method: "action.create"
+              params:
+                name: "vpsrun • autoregistro Linux"
+                eventsource: 2
+                status: 0
+                filter:
+                  evaltype: 0
+                  conditions:
+                    - { conditiontype: 24, operator: 2, value: "{{ zabbix_host_metadata }}" }
+                operations: "{{ _ops }}"
+              id: 7
+            headers: "{{ _auth }}"
+          register: zbx_act_new
+          when: zbx_act.json.result | length == 0
+          failed_when: zbx_act_new.json.error is defined
+          no_log: true
       rescue:
         - name: Autoregistro não configurado agora (não é fatal)
           ansible.builtin.debug:
