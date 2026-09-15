@@ -196,7 +196,7 @@
             url: "{{ _api }}"
             method: POST
             body_format: json
-            body: { jsonrpc: "2.0", method: "apiinfo.version", id: 1 }
+            body: { jsonrpc: "2.0", method: "apiinfo.version", params: [], id: 1 }
             headers: "{{ _hdr }}"
           register: zbx_ver
           retries: 30

@@ -21,6 +21,7 @@
     repo: "deb [signed-by=/etc/apt/keyrings/grafana.asc] https://apt.grafana.com stable main"
     state: present
     filename: grafana
+    update_cache: false   # o update tolerante roda logo abaixo
 
 - name: Atualiza índice apt (tolerante a repositórios de terceiros quebrados)
   ansible.builtin.command: apt-get update
