@@ -13,7 +13,7 @@ zabbix_server_ip: "127.0.0.1"
 
 # Endpoint da API do Zabbix (frontend). Usado para registrar hosts,
 # provisionar o data source do Grafana e configurar autoregistro.
-zabbix_api_url: "http://{{ zabbix_server_ip }}/zabbix"
+zabbix_api_url: "http://{{ zabbix_server_ip }}"
 zabbix_api_user: "Admin"
 # zabbix_api_password: injete via cofre/-e (NÃO versionar). Padrão de fábrica: zabbix
 zabbix_api_password: "{{ lookup('env', 'ZABBIX_API_PASSWORD') | default('zabbix', true) }}"

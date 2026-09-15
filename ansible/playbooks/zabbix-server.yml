@@ -102,6 +102,10 @@
       ansible.builtin.set_fact:
         _fe_port: "{{ zabbix_frontend_port if (zabbix_frontend_port is defined) else ('8081' if _port80.stdout == 'busy' else '80') }}"
 
+    - name: Define a URL base da API (no Debian o frontend nginx serve na raiz)
+      ansible.builtin.set_fact:
+        zabbix_api_url: "http://127.0.0.1:{{ _fe_port }}"
+
     - name: Aviso quando a porta 80 está ocupada
       ansible.builtin.debug:
         msg: "Porta 80 ocupada — o frontend do Zabbix vai subir na porta {{ _fe_port }} (ex.: http://IP:{{ _fe_port }}/zabbix)."
@@ -184,7 +188,7 @@
       when: zabbix_autoregistration_enabled | bool
       vars:
         # Fala com o frontend local na porta que ele realmente subiu.
-        _api: "http://127.0.0.1:{{ _fe_port }}/zabbix/api_jsonrpc.php"
+        _api: "{{ zabbix_api_url }}/api_jsonrpc.php"
         _hdr: { Content-Type: "application/json-rpc" }
       block:
         - name: Aguarda a API do Zabbix responder
@@ -324,7 +328,7 @@
     - name: Resumo do servidor
       ansible.builtin.debug:
         msg:
-          - "Zabbix {{ zabbix_version }} instalado. Frontend em http://{{ zabbix_server_ip }}{{ ':' + _fe_port if _fe_port != '80' else '' }}/zabbix"
+          - "Zabbix {{ zabbix_version }} instalado. Frontend em http://{{ zabbix_server_ip }}{{ ':' + _fe_port if _fe_port != '80' else '' }}/"
           - "Login inicial: Admin / zabbix  (TROQUE no primeiro acesso)."
           - "Senha do banco '{{ zabbix_db_name }}': guarde no cofre → vpsrun vault add --group Monitoramento --app Zabbix --type db_password --value '{{ _zbx_db_pass }}'"
           - "Autoregistro: {{ 'ATIVO (agentes ativos entram sozinhos)' if zabbix_autoregistration_enabled else 'desligado' }}"
