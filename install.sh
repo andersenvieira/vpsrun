@@ -31,6 +31,7 @@ REF="${VPSRUN_REF:-main}"
 DIR="${VPSRUN_DIR:-/opt/vpsrun}"
 DO_MONITOR=0 DO_GRAFANA=0 DO_BUILD=1 ASSUME_YES=0 DISCOVERY_CIDR="" FORCE_MENU=0
 ACTION_GIVEN=0
+ORIG_ARGS=("$@")   # guardado para re-exec na versão do kit
 # Fonte de input interativo (sobrescrevível para testes: VPSRUN_TTY=arquivo).
 TTY="${VPSRUN_TTY:-/dev/tty}"
 
@@ -77,24 +78,26 @@ _ansible_ok() {
   [ "$a" -gt 2 ] || { [ "$a" -eq 2 ] && [ "$b" -ge 15 ]; }
 }
 
-log "Instalando dependências (nmap, git, curl, python)… (pode levar 1-2 min)"
-if [ "$FAMILY" = "debian" ]; then
-  export DEBIAN_FRONTEND=noninteractive
-  apt-get update
-  apt-get install -y nmap git curl ca-certificates python3-pip python3-venv
-else
-  (dnf install -y nmap git curl python3-pip || yum install -y nmap git curl python3-pip)
-fi
+if [ "${VPSRUN_REEXEC:-0}" != "1" ]; then
+  log "Instalando dependências (nmap, git, curl, python)… (pode levar 1-2 min)"
+  if [ "$FAMILY" = "debian" ]; then
+    export DEBIAN_FRONTEND=noninteractive
+    apt-get update
+    apt-get install -y nmap git curl ca-certificates python3-pip python3-venv
+  else
+    (dnf install -y nmap git curl python3-pip || yum install -y nmap git curl python3-pip)
+  fi
 
-if _ansible_ok; then
-  ok "Ansible compatível: $(ansible-playbook --version | head -1)."
-else
-  log "Ansible do sistema é antigo/ausente — instalando ansible-core moderno via pip…"
-  python3 -m pip install --break-system-packages --upgrade 'ansible-core>=2.16' \
-    || python3 -m pip install --upgrade 'ansible-core>=2.16'
-  hash -r
-  _ansible_ok && ok "Ansible instalado: $(ansible-playbook --version | head -1)." \
-    || warn "ansible-playbook ainda parece antigo — confira se /usr/local/bin vem antes de /usr/bin no PATH."
+  if _ansible_ok; then
+    ok "Ansible compatível: $(ansible-playbook --version | head -1)."
+  else
+    log "Ansible do sistema é antigo/ausente — instalando ansible-core moderno via pip…"
+    python3 -m pip install --break-system-packages --upgrade 'ansible-core>=2.16' \
+      || python3 -m pip install --upgrade 'ansible-core>=2.16'
+    hash -r
+    _ansible_ok && ok "Ansible instalado: $(ansible-playbook --version | head -1)." \
+      || warn "ansible-playbook ainda parece antigo — confira se /usr/local/bin vem antes de /usr/bin no PATH."
+  fi
 fi
 
 # ── obter o kit ─────────────────────────────────────────────────────────────
@@ -105,19 +108,27 @@ if [ -n "$SELF_DIR" ] && [ -f "$SELF_DIR/build.sh" ] && [ -d "$SELF_DIR/ansible"
   DIR="$SELF_DIR"
   log "Usando o kit local em $DIR (nenhuma alteração no git)."
 elif [ -d "$DIR/.git" ]; then
-  # 2) Já existe um clone gerenciado pelo instalador → atualiza sem destruir.
-  #    'pull --ff-only' NUNCA descarta trabalho local; se houver divergência ou
-  #    mudanças não commitadas, ele falha de propósito e seguimos com o que há.
-  log "Atualizando kit em $DIR (pull --ff-only, sem descartar nada)…"
-  if ! git -C "$DIR" pull --ff-only -q origin "$REF"; then
-    warn "Não deu para atualizar via fast-forward (mudanças locais?). Seguindo com o conteúdo atual."
-  fi
+  # 2) Clone GERENCIADO pelo instalador (ex.: /opt/vpsrun) → sincroniza com o
+  #    remoto de forma garantida (fetch + reset --hard). É seguro porque este
+  #    diretório é só a instalação, não um checkout de trabalho (esse caso é
+  #    tratado no ramo 1 acima, que nunca toca no git).
+  log "Atualizando kit em $DIR (sincronizando com origin/$REF)…"
+  git -C "$DIR" fetch -q origin "$REF" 2>/dev/null || git -C "$DIR" fetch -q --unshallow origin "$REF" 2>/dev/null || true
+  git -C "$DIR" reset --hard -q FETCH_HEAD 2>/dev/null || warn "não consegui sincronizar; seguindo com o conteúdo atual."
 else
   # 3) Nada ainda → clona limpo.
   log "Clonando $REPO ($REF) em $DIR…"
   git clone --depth 1 --branch "$REF" "$REPO" "$DIR" -q
 fi
 ok "Kit em $DIR"
+
+# Re-executa a versão do KIT (garante o menu mais novo, mesmo que o script tenha
+# vindo do cache do curl). Só quando ainda não estamos rodando o script do kit.
+SELF_REAL="$(readlink -f "$0" 2>/dev/null || echo "$0")"
+if [ "${VPSRUN_REEXEC:-0}" != "1" ] && [ -f "$DIR/install.sh" ] && [ "$SELF_REAL" != "$DIR/install.sh" ]; then
+  export VPSRUN_REEXEC=1
+  exec bash "$DIR/install.sh" "${ORIG_ARGS[@]}"
+fi
 
 # ── coleções Ansible ────────────────────────────────────────────────────────
 if [ -f "$DIR/ansible/requirements.yml" ]; then
@@ -301,7 +312,7 @@ onboard_and_install() {
 
   echo; log "Testando quais servidores já aceitam sua chave…"
   for ip in $ips; do
-    if ssh -i "$skey" -o BatchMode=yes -o ConnectTimeout=5 -o StrictHostKeyChecking=no "$suser@$ip" true 2>/dev/null; then
+    if ssh -i "$skey" -o BatchMode=yes -o ConnectTimeout=5 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null "$suser@$ip" true 2>/dev/null; then
       reach="${reach:+$reach,}$ip"; echo "   ✔ $ip conecta"
     else
       unreach="${unreach:+$unreach }$ip"; echo "   ✖ $ip sem acesso ainda"
@@ -313,7 +324,7 @@ onboard_and_install() {
     command -v sshpass >/dev/null 2>&1 || { log "instalando sshpass…"; { [ "$FAMILY" = debian ] && apt-get install -y sshpass; } >/dev/null 2>&1 || true; }
     pw="$(askpass '  Senha SSH (a mesma nos servidores):')"
     for ip in $unreach; do
-      if sshpass -p "$pw" ssh-copy-id -i "$skey.pub" -o StrictHostKeyChecking=no -o ConnectTimeout=5 "$suser@$ip" >/dev/null 2>&1; then
+      if sshpass -p "$pw" ssh-copy-id -i "$skey.pub" -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=5 "$suser@$ip" >/dev/null 2>&1; then
         ok "   chave copiada → $ip"; reach="${reach:+$reach,}$ip"
       else warn "   falhou em $ip (senha errada, sem acesso ou host recusou)"; fi
     done
