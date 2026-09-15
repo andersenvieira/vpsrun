@@ -22,10 +22,17 @@
     state: present
     filename: grafana
 
+- name: Atualiza índice apt (tolerante a repositórios de terceiros quebrados)
+  ansible.builtin.command: apt-get update
+  changed_when: false
+  failed_when: false
+  environment:
+    DEBIAN_FRONTEND: noninteractive
+
 - name: Instala o Grafana
   ansible.builtin.apt:
     name: grafana
-    update_cache: true
+    update_cache: false
     state: present
 
 - name: Instala o plugin do Zabbix

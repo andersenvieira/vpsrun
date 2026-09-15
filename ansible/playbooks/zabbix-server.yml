@@ -19,9 +19,15 @@
       register: zbx_repo
       failed_when: false
 
-    - name: Atualiza índice apt
-      ansible.builtin.apt:
-        update_cache: true
+    - name: Atualiza índice apt (tolerante a repositórios de terceiros quebrados)
+      # O módulo apt falha se QUALQUER repo do sistema estiver quebrado (ex.: uma
+      # chave GPG vencida de k8s/docker pré-existente). Usamos o apt-get direto,
+      # que atualiza os repos válidos (incluindo o do Zabbix) e ignora os quebrados.
+      ansible.builtin.command: apt-get update
+      changed_when: false
+      failed_when: false
+      environment:
+        DEBIAN_FRONTEND: noninteractive
 
     - name: Pacotes do servidor Zabbix (nginx + mysql) + libs Python
       ansible.builtin.apt:

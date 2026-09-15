@@ -9,10 +9,16 @@
       ansible.builtin.apt:
         deb: "https://repo.zabbix.com/zabbix/{{ zabbix_version }}/debian/pool/main/z/zabbix-release/zabbix-release_latest+debian{{ ansible_distribution_major_version }}_all.deb"
       failed_when: false
+    - name: Atualiza índice apt (tolerante a repositórios quebrados)
+      ansible.builtin.command: apt-get update
+      changed_when: false
+      failed_when: false
+      environment:
+        DEBIAN_FRONTEND: noninteractive
     - name: Instala zabbix-agent2 (apt)
       ansible.builtin.apt:
         name: zabbix-agent2
-        update_cache: true
+        update_cache: false
         state: present
 
 - name: Instala agente (RedHat/CentOS/Rocky)
