@@ -1,0 +1,33 @@
+---
+# Instala o agente Zabbix numa LISTA específica de hosts (os que passaram no
+# teste de SSH), em vez de varrer a rede. Os hosts entram por autoregistro.
+#
+# Uso:
+#   ansible-playbook -i inventory.ini playbooks/install-agents.yml \
+#     -e 'agent_hosts=192.168.244.3,192.168.244.7' \
+#     -e ansible_user=root -e ansible_ssh_private_key_file=~/.ssh/id_ed25519
+- name: Prepara os alvos informados
+  hosts: localhost
+  gather_facts: false
+  vars_files:
+    - ../group_vars/all.yml
+  tasks:
+    - name: Valida a lista de hosts
+      ansible.builtin.assert:
+        that: agent_hosts is defined and (agent_hosts | length) > 0
+        fail_msg: "Informe -e 'agent_hosts=ip1,ip2'"
+
+    - name: Adiciona cada host ao grupo em memória
+      ansible.builtin.add_host:
+        name: "{{ item }}"
+        groups: agent_targets
+      loop: "{{ agent_hosts.split(',') | map('trim') | select | list }}"
+
+- name: Instala o agente Zabbix nos alvos
+  hosts: agent_targets
+  become: true
+  gather_facts: true
+  vars_files:
+    - ../group_vars/all.yml
+  roles:
+    - zabbix_agent

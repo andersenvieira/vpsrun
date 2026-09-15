@@ -153,6 +153,7 @@ confirm() {
   case "$r" in s|S|y|Y) return 0;; *) return 1;; esac
 }
 ask() { local __v; read -r -p "$1 " __v <"$TTY" || __v=""; printf '%s' "$__v"; }
+askpass() { local __v; read -rs -p "$1 " __v <"$TTY" || __v=""; echo >&2; printf '%s' "$__v"; }
 pause() { echo; read -r -p "  ▸ Pressione ENTER para voltar ao menu " _ <"$TTY" || true; }
 
 # Mostra o painel de acessos (URLs + credenciais) gravado pelos playbooks.
@@ -252,27 +253,12 @@ PASSO1
    1) Só MAPEAR a rede (não instala nada)      ← recomendado p/ começar
    2) MONITORAR: instalar o agente Zabbix nos hosts encontrados
 PASSO2
-  local ssh_args="" suser skey auth
+  local strat suser skey
   case "$(ask 'estratégia>')" in
-    2) scan="false"
-       echo
-       echo "  Para instalar o agente eu preciso ENTRAR por SSH em cada host."
-       echo "  (hosts sem esse acesso são apenas pulados, não trava o resto)"
-       suser="$(ask '  Usuário SSH dos hosts [root]:')"; suser="${suser:-root}"
-       echo "   1) Chave SSH (recomendado — sem senha)"
-       echo "   2) Senha (a mesma para todos os hosts)"
-       auth="$(ask '  Como autenticar? [1/2]:')"
-       case "$auth" in
-         2) command -v sshpass >/dev/null 2>&1 || { log "instalando sshpass…"; { [ "$FAMILY" = debian ] && apt-get install -y sshpass; } >/dev/null 2>&1 || true; }
-            ssh_args="--ask-pass -e ansible_user=$suser"
-            echo "  (o Ansible vai te pedir a senha SSH uma vez, ao iniciar)";;
-         *) skey="$(ask "  Caminho da chave [$HOME/.ssh/id_rsa]:")"; skey="${skey:-$HOME/.ssh/id_rsa}"
-            if [ ! -f "$skey" ]; then
-              warn "chave $skey não encontrada — gere/copeie a chave antes, ou use autenticação por senha."
-            fi
-            ssh_args="-e ansible_user=$suser -e ansible_ssh_private_key_file=$skey";;
-       esac;;
-    *) scan="true";;
+    2) strat="agent"
+       suser="$(ask '  Usuário SSH dos servidores [root]:')"; suser="${suser:-root}"
+       skey="$(ask "  Caminho da chave SSH [$HOME/.ssh/id_ed25519]:")"; skey="${skey:-$HOME/.ssh/id_ed25519}";;
+    *) strat="map";;
   esac
 
   # Por padrão pula o gateway/firewall (.1) — a causa mais comum de problema.
@@ -282,15 +268,63 @@ PASSO2
   x2="$(ask '  Excluir mais algum IP? (separe por vírgula, vazio=não):')"
   [ -n "$x2" ] && exc="${exc:+$exc,}$x2"
 
-  ea="-e discovery_cidr=$alvo -e discovery_scan_only=$scan $ssh_args"
-  [ -n "$exc" ] && ea="$ea -e discovery_exclude=$exc"
   echo
-  ok "Resumo → faixa: $alvo  ·  $([ "$scan" = true ] && echo 'só mapear' || echo "instalar agentes (SSH: $suser)")  ·  excluir: ${exc:-nenhum}"
-  confirm "Pode rodar?" || { warn "cancelado"; return; }
+  ok "Resumo → faixa: $alvo  ·  $([ "$strat" = map ] && echo 'só mapear' || echo "monitorar por chave SSH ($suser)")  ·  excluir: ${exc:-nenhum}"
+  confirm "Pode mapear a rede agora?" || { warn "cancelado"; return; }
+
+  # 1) SEMPRE mapeia primeiro (sem tocar em ninguém) e mostra a lista.
+  ea="-e discovery_cidr=$alvo -e discovery_scan_only=true"
+  [ -n "$exc" ] && ea="$ea -e discovery_exclude=$exc"
   # shellcheck disable=SC2086
   run_playbook playbooks/discovery.yml $ea
-  [ -f "$DIR/ansible/discovery-report.txt" ] && { echo; ok "Relatório da rede (salvo em $DIR/ansible/discovery-report.txt):"; sed 's/^/   /' "$DIR/ansible/discovery-report.txt"; }
+  [ -f "$DIR/ansible/discovery-report.txt" ] && { echo; ok "Rede mapeada (salvo em $DIR/ansible/discovery-report.txt):"; sed 's/^/   /' "$DIR/ansible/discovery-report.txt"; }
+
+  # 2) Se for monitorar, faz o onboarding por chave: testa → copia se preciso → instala nos que conectam.
+  [ "$strat" = agent ] && onboard_and_install "$suser" "$skey"
   return 0
+}
+
+# Testa SSH por chave, oferece copiar a chave nos que faltam e instala o agente
+# só nos hosts que realmente conectam. Nunca "pede senha e falha no meio".
+onboard_and_install() {
+  local suser="$1" skey="$2" rep="$DIR/ansible/discovery-report.txt"
+  local ips ip reach="" unreach="" pw
+  ips="$(grep -oE '^- [0-9.]+' "$rep" 2>/dev/null | awk '{print $2}')"
+  [ -n "$ips" ] || { warn "nenhum host encontrado para instalar."; return; }
+
+  # Garante a chave (gera se não existir).
+  if [ ! -f "$skey" ]; then
+    if confirm "A chave $skey não existe. Criar agora (sem senha)?"; then
+      ssh-keygen -t ed25519 -N '' -f "$skey" -q && ok "Chave criada: $skey (.pub ao lado)."
+    else warn "Sem chave não dá para seguir pelo modelo de chave."; return; fi
+  fi
+
+  echo; log "Testando quais servidores já aceitam sua chave…"
+  for ip in $ips; do
+    if ssh -i "$skey" -o BatchMode=yes -o ConnectTimeout=5 -o StrictHostKeyChecking=no "$suser@$ip" true 2>/dev/null; then
+      reach="${reach:+$reach,}$ip"; echo "   ✔ $ip conecta"
+    else
+      unreach="${unreach:+$unreach }$ip"; echo "   ✖ $ip sem acesso ainda"
+    fi
+  done
+
+  # Oferece copiar a chave nos que faltam (aí sim pede a senha, uma vez).
+  if [ -n "$unreach" ] && confirm "Copiar sua chave para os hosts sem acesso? (pede a senha 1x)"; then
+    command -v sshpass >/dev/null 2>&1 || { log "instalando sshpass…"; { [ "$FAMILY" = debian ] && apt-get install -y sshpass; } >/dev/null 2>&1 || true; }
+    pw="$(askpass '  Senha SSH (a mesma nos servidores):')"
+    for ip in $unreach; do
+      if sshpass -p "$pw" ssh-copy-id -i "$skey.pub" -o StrictHostKeyChecking=no -o ConnectTimeout=5 "$suser@$ip" >/dev/null 2>&1; then
+        ok "   chave copiada → $ip"; reach="${reach:+$reach,}$ip"
+      else warn "   falhou em $ip (senha errada, sem acesso ou host recusou)"; fi
+    done
+    unset pw
+  fi
+
+  [ -n "$reach" ] || { warn "Nenhum servidor acessível por chave — nada a instalar."; return; }
+  echo; ok "Vou instalar o agente Zabbix em: $reach"
+  confirm "Confirma a instalação nesses hosts?" || { warn "cancelado"; return; }
+  run_playbook playbooks/install-agents.yml -e "agent_hosts=$reach" -e "ansible_user=$suser" -e "ansible_ssh_private_key_file=$skey"
+  ok "Feito. Os hosts que instalaram entram sozinhos no Zabbix (autoregistro)."
 }
 
 # A partir daqui é o menu interativo: uma tarefa que falha NÃO deve derrubar o
