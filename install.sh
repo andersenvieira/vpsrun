@@ -67,13 +67,13 @@ esac
 log "Distro: ${PRETTY_NAME:-desconhecida} (família $FAMILY)"
 
 # ── dependências base ───────────────────────────────────────────────────────
-log "Instalando dependências (ansible, nmap, git, curl)…"
+log "Instalando dependências (ansible, nmap, git, curl)… (pode levar 1-2 min)"
 if [ "$FAMILY" = "debian" ]; then
   export DEBIAN_FRONTEND=noninteractive
-  apt-get update -qq
-  apt-get install -y -qq ansible nmap git curl ca-certificates >/dev/null
+  apt-get update
+  apt-get install -y ansible nmap git curl ca-certificates
 else
-  (dnf install -y ansible nmap git curl >/dev/null 2>&1) || yum install -y ansible nmap git curl >/dev/null
+  dnf install -y ansible nmap git curl || yum install -y ansible nmap git curl
 fi
 ok "Dependências prontas."
 
@@ -101,8 +101,8 @@ ok "Kit em $DIR"
 
 # ── coleções Ansible ────────────────────────────────────────────────────────
 if [ -f "$DIR/ansible/requirements.yml" ]; then
-  log "Instalando coleções Ansible…"
-  ansible-galaxy collection install -r "$DIR/ansible/requirements.yml" >/dev/null
+  log "Instalando coleções Ansible… (baixa alguns MB)"
+  ansible-galaxy collection install -r "$DIR/ansible/requirements.yml"
   ok "Coleções instaladas."
 fi
 
