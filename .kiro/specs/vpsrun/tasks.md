@@ -14,7 +14,9 @@ Funcional e publicado no repositório privado. Resumo:
 - **Runner** — executor Bash seguro (args em slice). ✅
 - **Tuning** — scripts idempotentes rede/ram/cpu (show/apply/revert), CLI `vpsrun tuning`. ✅
 - **Limpeza** — relatório read-only. ✅
-- **Monitoramento** — playbooks Ansible (Zabbix + discovery + role de agente, Grafana opcional). Artefatos prontos; execução sob decisão do operador. ✅ (código) / ⏳ (execução)
+- **Monitoramento** — Zabbix (install + schema + autoregistro via API), discovery multi-CIDR com agente ativo, Grafana provisionado (data source + dashboard), registro por API. Ligado na TUI com confirmação. ✅ (código) / ⏳ (execução no cliente)
+- **Operações SOC/NOC/TI** — catálogo Ansible em `playbooks/ops/` (update em massa, install/remove, serviços, reboot rolling, comando ad-hoc, hardening, inventário CSV). ✅
+- **Instalador por link (Linux)** — `install.sh` (curl|bash): instala deps + coleções, traz o kit e abre um **menu** com todas as instalações e funções. Link curto via GitHub Pages (`docs/get`). Doc em `GET.md`. ✅
 - **Standalone `vpsrun-audit`** — gate de escopo + scan TCP + trilha. Testes passando. ✅
 - **Empacotamento** — `build.sh` cross-compila Linux/Windows e gera Kit `.tar.zst`. ✅
 
@@ -63,15 +65,23 @@ Pendências conhecidas: sync automático do cofre p/ Drive (2.4), módulos de in
   - [ ] 5.4 Replicação: gerar Kit_Portátil e provisionar Debian limpo + restaurar
     - _Requirements: 6.1, 6.2, 6.3_
 
-- [ ] 6. Módulo Monitoramento (Zabbix + Ansible)
-  - [ ] 6.1 Instalação autoconfigurável do Zabbix (server/frontend/db) com credenciais no cofre
+- [x] 6. Módulo Monitoramento (Zabbix + Ansible)
+  - [x] 6.1 Instalação autoconfigurável do Zabbix (server/frontend/db + import de schema + senha do banco gerada) com registro no cofre
     - _Requirements: 4.1_
-  - [ ] 6.2 Grafana como módulo opcional (habilitar/desabilitar depois sem reinstalar Zabbix)
+  - [x] 6.2 Grafana como módulo opcional (role dedicada: plugin Zabbix + data source e dashboard provisionados; liga/desliga sem reinstalar)
     - _Requirements: 4.3, 4.6_
-  - [ ] 6.3 Dashboards nativos do Zabbix cobrindo o que o Grafana mostraria
+  - [x] 6.3 Dashboards nativos do Zabbix + dashboard "Visão Geral" do Grafana (CPU/RAM/disco/rede/problemas)
     - _Requirements: 4.4, 4.5_
-  - [ ] 6.4 Ansible: descoberta de rede, detecção de SO e push autônomo de agentes
+  - [x] 6.4 Ansible: descoberta multi-CIDR, detecção de SO, agente em modo ativo + autoregistro (ação na API) e registro via API para hosts passivos
     - _Requirements: 4.2_
+  - [x] 6.5 Instalador por link (`install.sh`) com menu, e wiring da TUI para executar os playbooks com confirmação
+    - _Requirements: 4.1, 4.2, NF-Usabilidade_
+
+- [x] 12. Operações Ansible (SOC/NOC/TI) — `ansible/playbooks/ops/`
+  - [x] 12.1 Atualização em massa (safe/dist, só segurança, reboot opcional, rolling)
+  - [x] 12.2 Instalar/remover apps em massa; gerência de serviços
+  - [x] 12.3 Reboot controlado, comando ad-hoc de plantão, coleta de inventário (CSV)
+  - [x] 12.4 Hardening básico (UFW + fail2ban + auto-updates + SSH)
 
 - [ ] 7. Módulo Backup & Restauração
   - [ ] 7.1 Rodar/agendar, retenção e sync rclone para o Drive

@@ -1,0 +1,33 @@
+---
+# Coleta inventário do parque (SO, CPU, RAM, disco, IP, uptime) e grava um
+# relatório CSV + TXT no controlador. Útil para abrir um NOC do zero.
+#
+# Uso:
+#   ansible-playbook -i inventory.ini playbooks/ops/inventory-report.yml
+- name: Coleta de inventário do parque
+  hosts: "{{ target | default('all') }}"
+  gather_facts: true
+  tasks:
+    - name: Monta a linha do host
+      ansible.builtin.set_fact:
+        _row: >-
+          {{ inventory_hostname }};{{ ansible_default_ipv4.address | default('?') }};{{ ansible_distribution }} {{ ansible_distribution_version }};{{ ansible_processor_vcpus | default('?') }} vCPU;{{ (ansible_memtotal_mb / 1024) | round(1) }} GB;{{ ansible_kernel }}
+
+- name: Escreve o relatório no controlador
+  hosts: localhost
+  gather_facts: false
+  vars:
+    _out: "{{ playbook_dir }}/../inventory-report"
+  tasks:
+    - name: CSV
+      ansible.builtin.copy:
+        dest: "{{ _out }}.csv"
+        content: |
+          host;ip;so;cpu;ram;kernel
+          {% for h in groups[target | default('all')] | default([]) %}
+          {{ hostvars[h]._row | default(h + ';(sem coleta)') }}
+          {% endfor %}
+
+    - name: Aviso
+      ansible.builtin.debug:
+        msg: "Relatório gravado em {{ _out }}.csv"

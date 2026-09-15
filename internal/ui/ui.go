@@ -22,6 +22,7 @@ const (
 	stMaster
 	stVault
 	stReveal
+	stConfirm
 )
 
 var (
@@ -49,7 +50,9 @@ type actionResultMsg struct {
 
 type model struct {
 	scriptsDir string
+	ansibleDir string
 	runner     *runner.Runner
+	pbRunner   *runner.PlaybookRunner
 
 	path   []*node
 	cursor []int
@@ -59,6 +62,10 @@ type model struct {
 
 	outputTitle string
 	output      string
+
+	// confirmação de ações que alteram o sistema
+	confirmPrompt string
+	pending       func(*model) tea.Cmd
 
 	// cofre
 	input       string
@@ -74,10 +81,13 @@ type model struct {
 // New cria o modelo inicial da TUI.
 func New() tea.Model {
 	sd := core.ScriptsDir()
+	ad := core.AnsibleDir()
 	root := buildMenu()
 	return &model{
 		scriptsDir: sd,
+		ansibleDir: ad,
 		runner:     runner.New(sd),
+		pbRunner:   runner.NewPlaybookRunner(ad),
 		path:       []*node{root},
 		cursor:     []int{0},
 		state:      stMenu,
@@ -134,8 +144,27 @@ func (m *model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case stVault:
 		return m.keyVault(msg)
+	case stConfirm:
+		return m.keyConfirm(msg)
 	default:
 		return m.keyMenu(msg)
+	}
+}
+
+func (m *model) keyConfirm(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "s", "S", "y", "Y", "enter":
+		p := m.pending
+		m.pending = nil
+		if p != nil {
+			return m, p(m)
+		}
+		m.state = stMenu
+		return m, nil
+	default: // qualquer outra tecla cancela
+		m.pending = nil
+		m.state = stMenu
+		return m, nil
 	}
 }
 
@@ -266,9 +295,20 @@ func (m *model) View() string {
 		return m.viewReveal()
 	case stVault:
 		return m.viewVault()
+	case stConfirm:
+		return m.viewConfirm()
 	default:
 		return m.viewMenu()
 	}
+}
+
+func (m *model) viewConfirm() string {
+	var b strings.Builder
+	b.WriteString(header() + "\n\n")
+	b.WriteString(titleStyle.Render("⚠ Confirmar ação") + "\n\n")
+	b.WriteString(boxStyle.Render(m.confirmPrompt) + "\n\n")
+	b.WriteString(helpStyle.Render("s/enter = executar   ·   qualquer outra tecla = cancelar"))
+	return b.String()
 }
 
 func header() string {
@@ -469,6 +509,38 @@ func tuningHelp(m *model) tea.Cmd {
 	return nil
 }
 
+// runPlaybookAction pede confirmação e então executa um playbook Ansible real.
+func runPlaybookAction(title, prompt, playbook string, args ...string) func(*model) tea.Cmd {
+	return func(m *model) tea.Cmd {
+		m.confirmPrompt = prompt + "\n\nComando:\n  ansible-playbook -i inventory.ini " +
+			strings.Join(append([]string{playbook}, args...), " ")
+		m.state = stConfirm
+		m.pending = func(m *model) tea.Cmd {
+			m.outputTitle = title
+			m.output = "Executando… (pode levar alguns minutos)"
+			m.state = stOutput
+			return func() tea.Msg {
+				out, err := m.pbRunner.RunPlaybook(playbook, args, 20*time.Minute)
+				return actionResultMsg{title: title, output: out, err: err}
+			}
+		}
+		return nil
+	}
+}
+
+// playbookHelp mostra o comando exato para um playbook que exige parâmetros.
+func playbookHelp(title, desc, playbook, example string) func(*model) tea.Cmd {
+	return func(m *model) tea.Cmd {
+		m.outputTitle = title
+		m.output = desc + "\n\nExecute em " + okStyle.Render("~/Documents/VPSRUN/ansible") + ":\n\n" +
+			okStyle.Render("  ansible-playbook -i inventory.ini "+playbook+" "+example) + "\n\n" +
+			"Limite o alcance com " + okStyle.Render("-e 'target=<grupo>'") + " (padrão: all).\n" +
+			"Simule sem alterar nada acrescentando " + okStyle.Render("--check") + "."
+		m.state = stOutput
+		return nil
+	}
+}
+
 func placeholder(desc string) func(*model) tea.Cmd {
 	return func(m *model) tea.Cmd {
 		m.outputTitle = "Em construção"
@@ -490,11 +562,26 @@ func buildMenu() *node {
 			{title: "Replicar esta VPS", action: runScriptAction("Replicar VPS (dry-run)", "setup-vps.sh", "--help")},
 		}},
 		{title: "2 · Cofre de Credenciais 🔒", action: openVaultAction},
-		{title: "3 · Monitoramento (Zabbix + Ansible)", children: []*node{
+		{title: "3 · Monitoramento (Zabbix + Grafana)", children: []*node{
 			{title: "Verificar pré-requisitos (ansible/nmap)", action: monitorPrereqs},
-			{title: "Instalar Zabbix — como executar", action: monitorHelp("zabbix-server.yml", "Instala Zabbix server + frontend + DB.")},
-			{title: "Descoberta de rede + agentes — como executar", action: monitorHelp("discovery.yml", "Varre a rede, detecta SO e instala agentes.")},
+			{title: "Instalar Zabbix (server + frontend + DB)",
+				action: runPlaybookAction("Instalar Zabbix",
+					"Instala Zabbix server, frontend nginx e MariaDB neste host, importa o schema e configura o autoregistro. Requer sudo sem senha ou execução como root.",
+					"playbooks/zabbix-server.yml")},
+			{title: "Instalar Zabbix + Grafana (painel pronto)",
+				action: runPlaybookAction("Instalar Zabbix + Grafana",
+					"Instala o Zabbix e o Grafana com o data source e o dashboard 'Visão Geral' já provisionados.",
+					"playbooks/zabbix-server.yml", "-e", "grafana_enabled=true")},
+			{title: "Descoberta de rede + agentes (autoregistro)",
+				action: runPlaybookAction("Descoberta de rede",
+					"Varre a rede definida em group_vars/all.yml (discovery_cidr), detecta o SO e instala o agente Zabbix em modo ativo. Os hosts entram sozinhos no servidor.",
+					"playbooks/discovery.yml")},
+			{title: "Registrar hosts do inventário (via API)",
+				action: runPlaybookAction("Registrar hosts (API)",
+					"Cadastra os hosts do grupo [monitored] no Zabbix via API, linkando o template Linux.",
+					"playbooks/zabbix-register-hosts.yml")},
 			{title: "Grafana (opcional) — como alternar", action: grafanaHelp},
+			{title: "Instalar Zabbix — comando manual", action: monitorHelp("zabbix-server.yml", "Instala Zabbix server + frontend + DB.")},
 		}},
 		{title: "4 · Backup & Restauração", children: []*node{
 			{title: "Rodar backup agora", action: runScriptAction("Backup", "backup-vps.sh")},
@@ -510,5 +597,43 @@ func buildMenu() *node {
 		}},
 		{title: "6 · Updates Guiados", action: placeholder("módulo updates (inventário)")},
 		{title: "7 · Saúde do Sistema", action: runScriptAction("Saúde do Sistema", "verificar-saude.sh")},
+		{title: "8 · Operações Ansible (SOC · NOC · TI)", children: []*node{
+			{title: "Atualizar tudo (safe) no parque",
+				action: runPlaybookAction("Atualizar parque",
+					"Atualização segura de pacotes em TODOS os hosts do inventário (target=all).",
+					"playbooks/ops/update-all.yml")},
+			{title: "Atualizar só segurança",
+				action: runPlaybookAction("Atualizar (segurança)",
+					"Aplica apenas atualizações de segurança em todo o parque.",
+					"playbooks/ops/update-all.yml", "-e", "security_only=true")},
+			{title: "Hardening básico (UFW + fail2ban + auto-updates)",
+				action: runPlaybookAction("Hardening básico",
+					"Aplica firewall, fail2ban, atualizações automáticas e SSH mais rígido no parque.",
+					"playbooks/ops/harden-basic.yml")},
+			{title: "Inventário do parque (gera CSV)",
+				action: runPlaybookAction("Inventário do parque",
+					"Coleta SO/CPU/RAM/disco de todos os hosts e grava ansible/inventory-report.csv.",
+					"playbooks/ops/inventory-report.yml")},
+			{title: "Reboot controlado (rolling)",
+				action: runPlaybookAction("Reboot controlado",
+					"Reinicia o parque em lotes (30% por vez). Use com cuidado.",
+					"playbooks/ops/reboot.yml")},
+			{title: "Instalar apps em massa — comando",
+				action: playbookHelp("Instalar apps em massa",
+					"Instala um ou mais pacotes em todos (ou num grupo) do inventário.",
+					"playbooks/ops/install-package.yml", "-e 'packages=htop,tmux'")},
+			{title: "Remover apps em massa — comando",
+				action: playbookHelp("Remover apps em massa",
+					"Remove pacotes (purge + autoremove) do parque.",
+					"playbooks/ops/remove-package.yml", "-e 'packages=telnet'")},
+			{title: "Gerenciar serviço — comando",
+				action: playbookHelp("Gerenciar serviço",
+					"start/stop/restart/enable de um serviço em massa.",
+					"playbooks/ops/service.yml", "-e 'service=nginx action=restarted'")},
+			{title: "Comando ad-hoc de plantão — comando",
+				action: playbookHelp("Comando ad-hoc",
+					"Roda um comando arbitrário no parque (ferramenta de plantão do NOC).",
+					"playbooks/ops/run-command.yml", "-e 'cmd=\"df -h /\"'")},
+		}},
 	}}
 }

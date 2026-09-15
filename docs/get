@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+# Atalho estável do vpsrun (servido pelo GitHub Pages).
+# Baixa e executa o install.sh atual do branch main, repassando argumentos.
+#   curl -fsSL https://andersenvieira.github.io/vpsrun/get | sudo bash
+#   curl -fsSL https://andersenvieira.github.io/vpsrun/get | sudo bash -s -- --monitor --yes
+set -euo pipefail
+SRC="https://raw.githubusercontent.com/andersenvieira/vpsrun/main/install.sh"
+exec bash -c "$(curl -fsSL "$SRC")" -- "$@"

@@ -1,0 +1,59 @@
+---
+# Atualização de pacotes em massa (apt/dnf/yum). Multiplataforma e idempotente.
+#
+# Uso:
+#   ansible-playbook -i inventory.ini playbooks/ops/update-all.yml
+#   ... -e 'target=web'          # limita a um grupo do inventário
+#   ... -e 'upgrade_type=full'   # full | dist | safe (padrão: safe)
+#   ... -e 'security_only=true'  # só atualizações de segurança (Debian/Ubuntu)
+#   ... -e 'auto_reboot=true'    # reinicia se um kernel novo exigir
+- name: Atualização de pacotes em massa
+  hosts: "{{ target | default('all') }}"
+  become: true
+  serial: "{{ batch | default('100%') }}"
+  vars:
+    upgrade_type: safe
+    security_only: false
+    auto_reboot: false
+  tasks:
+    - name: (Debian/Ubuntu) Atualiza índice e faz upgrade
+      when: ansible_os_family == "Debian"
+      ansible.builtin.apt:
+        update_cache: true
+        cache_valid_time: 3600
+        upgrade: "{{ 'dist' if upgrade_type in ['full','dist'] else 'safe' }}"
+        autoremove: true
+      register: apt_upg
+      environment:
+        DEBIAN_FRONTEND: noninteractive
+
+    - name: (Debian/Ubuntu) Só segurança via unattended-upgrade
+      when: ansible_os_family == "Debian" and (security_only | bool)
+      ansible.builtin.command: unattended-upgrade -d
+      register: sec_upg
+      changed_when: "'Packages that will be upgraded' in sec_upg.stdout"
+
+    - name: (RedHat) Atualiza pacotes
+      when: ansible_os_family == "RedHat"
+      ansible.builtin.dnf:
+        name: "*"
+        state: latest
+        security: "{{ security_only | bool }}"
+      register: dnf_upg
+
+    - name: Verifica se precisa reiniciar (Debian)
+      when: ansible_os_family == "Debian"
+      ansible.builtin.stat:
+        path: /var/run/reboot-required
+      register: reboot_required
+
+    - name: Reinicia quando exigido e autorizado
+      when:
+        - auto_reboot | bool
+        - (reboot_required.stat.exists | default(false)) or (dnf_upg.changed | default(false))
+      ansible.builtin.reboot:
+        reboot_timeout: 600
+
+    - name: Resumo por host
+      ansible.builtin.debug:
+        msg: "{{ inventory_hostname }}: atualização concluída ({{ upgrade_type }}{{ ' • só segurança' if security_only | bool else '' }}). Reboot pendente: {{ reboot_required.stat.exists | default('n/a') }}"

@@ -31,6 +31,7 @@ pack() { # $1=os $2=arch $3=ext
   rm -rf "$staging"; mkdir -p "$staging"
   cp "$DIST/vpsrun$ext" "$DIST/vpsrun-audit$ext" "$staging/"
   cp -r scripts ansible "$staging/" 2>/dev/null || true
+  cp install.sh GET.md "$staging/" 2>/dev/null || true
   mkdir -p "$staging/docs"; cp MANUAL.md "$staging/docs/" 2>/dev/null || true
   cp -r .kiro "$staging/" 2>/dev/null || true
 

@@ -1,0 +1,98 @@
+---
+# Role Grafana: instala o Grafana, o plugin do Zabbix, provisiona o data source
+# apontando para a API do Zabbix e importa um dashboard de visão geral.
+# Idempotente. Só é chamada quando grafana_enabled=true.
+- name: Dependência para repositório https
+  ansible.builtin.apt:
+    name:
+      - apt-transport-https
+      - software-properties-common
+      - gnupg
+    state: present
+
+- name: Chave GPG do Grafana
+  ansible.builtin.get_url:
+    url: https://apt.grafana.com/gpg.key
+    dest: /etc/apt/keyrings/grafana.asc
+    mode: "0644"
+
+- name: Repositório Grafana
+  ansible.builtin.apt_repository:
+    repo: "deb [signed-by=/etc/apt/keyrings/grafana.asc] https://apt.grafana.com stable main"
+    state: present
+    filename: grafana
+
+- name: Instala o Grafana
+  ansible.builtin.apt:
+    name: grafana
+    update_cache: true
+    state: present
+
+- name: Instala o plugin do Zabbix
+  community.grafana.grafana_plugin:
+    name: "{{ grafana_zabbix_plugin }}"
+    state: present
+  register: gf_plugin
+  failed_when: false
+
+- name: Fallback — instala o plugin via grafana-cli
+  ansible.builtin.command: "grafana-cli plugins install {{ grafana_zabbix_plugin }}"
+  register: gf_cli
+  changed_when: "'Installed' in gf_cli.stdout"
+  failed_when: gf_cli.rc != 0 and 'already installed' not in gf_cli.stdout
+  when: gf_plugin is failed
+
+- name: Senha do admin do Grafana
+  ansible.builtin.lineinfile:
+    path: /etc/grafana/grafana.ini
+    regexp: '^#?\s*admin_password'
+    line: "admin_password = {{ grafana_admin_password }}"
+    insertafter: '^\[security\]'
+  no_log: true
+  notify: reiniciar grafana
+
+- name: Provisiona o data source do Zabbix
+  ansible.builtin.template:
+    src: datasource-zabbix.yml.j2
+    dest: /etc/grafana/provisioning/datasources/vpsrun-zabbix.yml
+    mode: "0640"
+    owner: root
+    group: grafana
+  no_log: true
+  notify: reiniciar grafana
+
+- name: Diretório de dashboards
+  ansible.builtin.file:
+    path: /var/lib/grafana/dashboards
+    state: directory
+    owner: grafana
+    group: grafana
+    mode: "0755"
+
+- name: Provisiona o provider de dashboards
+  ansible.builtin.template:
+    src: dashboards-provider.yml.j2
+    dest: /etc/grafana/provisioning/dashboards/vpsrun.yml
+    mode: "0644"
+  notify: reiniciar grafana
+
+- name: Copia o dashboard de visão geral
+  ansible.builtin.copy:
+    src: overview-dashboard.json
+    dest: /var/lib/grafana/dashboards/vpsrun-overview.json
+    owner: grafana
+    group: grafana
+    mode: "0644"
+  notify: reiniciar grafana
+
+- name: Serviço Grafana ativo
+  ansible.builtin.systemd:
+    name: grafana-server
+    enabled: true
+    state: started
+
+- name: Resumo Grafana
+  ansible.builtin.debug:
+    msg:
+      - "Grafana em http://{{ zabbix_server_ip }}:3000  (admin / senha definida)"
+      - "Data source Zabbix já provisionado; dashboard 'vpsrun • Visão Geral' importado."

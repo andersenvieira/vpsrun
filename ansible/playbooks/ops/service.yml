@@ -1,0 +1,34 @@
+---
+# Gerência de serviços (systemd) em massa.
+#
+# Uso:
+#   ansible-playbook -i inventory.ini playbooks/ops/service.yml \
+#       -e 'service=nginx' -e 'action=restarted'
+#   action: started | stopped | restarted | reloaded  (padrão: restarted)
+#   enabled: true|false (opcional, ajusta o boot)
+- name: Gerência de serviços em massa
+  hosts: "{{ target | default('all') }}"
+  become: true
+  vars:
+    action: restarted
+  tasks:
+    - name: Valida entrada
+      ansible.builtin.assert:
+        that: service is defined and (service | length) > 0
+        fail_msg: "Informe -e 'service=nome'"
+
+    - name: Aplica estado do serviço
+      ansible.builtin.systemd:
+        name: "{{ service }}"
+        state: "{{ action }}"
+        enabled: "{{ enabled | default(omit) }}"
+
+    - name: Estado atual
+      ansible.builtin.command: "systemctl is-active {{ service }}"
+      register: svc_state
+      changed_when: false
+      failed_when: false
+
+    - name: Resumo
+      ansible.builtin.debug:
+        msg: "{{ inventory_hostname }}: {{ service }} → {{ action }} (is-active: {{ svc_state.stdout | trim }})"

@@ -1,0 +1,13 @@
+# Gerado pelo vpsrun — provider que carrega os dashboards de /var/lib/grafana/dashboards.
+apiVersion: 1
+providers:
+  - name: vpsrun
+    orgId: 1
+    folder: vpsrun
+    type: file
+    disableDeletion: false
+    updateIntervalSeconds: 30
+    allowUiUpdates: true
+    options:
+      path: /var/lib/grafana/dashboards
+      foldersFromFilesStructure: false

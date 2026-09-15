@@ -1,24 +1,33 @@
 ---
 # Descoberta de rede + instalação autônoma do agente Zabbix.
 #
-# Fase 1: varre o CIDR e monta o inventário dinâmico (hosts vivos com SSH).
-# Fase 2: aplica a role zabbix_agent nos hosts descobertos (idempotente).
+# Fase 1: varre o(s) CIDR(s) e monta o inventário dinâmico (hosts com SSH).
+# Fase 2: aplica a role zabbix_agent nos hosts descobertos (modo ativo +
+#         autoregistro), então eles aparecem sozinhos no servidor.
+#
+# Uso:
+#   ansible-playbook -i inventory.ini playbooks/discovery.yml
+#   ansible-playbook -i inventory.ini playbooks/discovery.yml -e 'discovery_cidr=10.0.0.0/24'
 - name: Descoberta de rede
   hosts: localhost
   gather_facts: false
   vars_files:
     - ../group_vars/all.yml
   tasks:
-    - name: Varre o CIDR em busca de hosts com SSH (22/tcp)
-      ansible.builtin.command: "nmap -n -p22 --open -oG - {{ discovery_cidr }}"
+    - name: Normaliza discovery_cidr em lista
+      ansible.builtin.set_fact:
+        _cidrs: "{{ discovery_cidr if discovery_cidr is iterable and discovery_cidr is not string else [discovery_cidr] }}"
+
+    - name: Varre cada CIDR em busca de hosts com SSH aberto
+      ansible.builtin.command: "nmap -n -p{{ discovery_port }} --open -oG - {{ item }}"
       register: nmap_out
       changed_when: false
       failed_when: false
+      loop: "{{ _cidrs }}"
 
-    - name: Extrai IPs vivos
+    - name: Extrai IPs vivos de todas as varreduras
       ansible.builtin.set_fact:
-        discovered_hosts: "{{ nmap_out.stdout | regex_findall('Host: ([0-9.]+)') }}"
-      when: nmap_out.stdout is defined
+        discovered_hosts: "{{ (nmap_out.results | map(attribute='stdout') | join('\n')) | regex_findall('Host: ([0-9.]+)') | unique }}"
 
     - name: Adiciona hosts descobertos ao grupo em memória
       ansible.builtin.add_host:
@@ -28,7 +37,19 @@
 
     - name: Relatório da descoberta
       ansible.builtin.debug:
-        msg: "Hosts com SSH: {{ discovered_hosts | default([]) }}"
+        msg: "Hosts com SSH ({{ discovered_hosts | default([]) | length }}): {{ discovered_hosts | default([]) }}"
+
+    - name: Grava relatório da descoberta em disco
+      ansible.builtin.copy:
+        dest: "{{ playbook_dir }}/../discovery-report.txt"
+        content: |
+          Descoberta vpsrun — {{ ansible_date_time.iso8601 | default('') }}
+          Redes: {{ _cidrs | join(', ') }}
+          Hosts vivos ({{ discovered_hosts | default([]) | length }}):
+          {% for h in discovered_hosts | default([]) %}
+          - {{ h }}
+          {% endfor %}
+      delegate_to: localhost
 
 - name: Instala agente Zabbix nos descobertos
   hosts: discovered

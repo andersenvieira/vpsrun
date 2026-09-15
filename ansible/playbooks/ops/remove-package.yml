@@ -1,0 +1,36 @@
+---
+# Remoção de pacotes em massa. Multiplataforma.
+#
+# Uso:
+#   ansible-playbook -i inventory.ini playbooks/ops/remove-package.yml \
+#       -e 'packages=telnet,rsh-client' -e 'target=all'
+- name: Remoção de pacotes em massa
+  hosts: "{{ target | default('all') }}"
+  become: true
+  tasks:
+    - name: Valida entrada
+      ansible.builtin.assert:
+        that: packages is defined and (packages | length) > 0
+        fail_msg: "Informe -e 'packages=pkg1,pkg2'"
+
+    - name: Normaliza lista
+      ansible.builtin.set_fact:
+        _pkgs: "{{ packages.split(',') | map('trim') | list if packages is string else packages }}"
+
+    - name: (Debian/Ubuntu) Remove + purge + autoremove
+      when: ansible_os_family == "Debian"
+      ansible.builtin.apt:
+        name: "{{ _pkgs }}"
+        state: absent
+        purge: true
+        autoremove: true
+
+    - name: (RedHat) Remove
+      when: ansible_os_family == "RedHat"
+      ansible.builtin.dnf:
+        name: "{{ _pkgs }}"
+        state: absent
+
+    - name: Resumo
+      ansible.builtin.debug:
+        msg: "{{ inventory_hostname }}: removidos {{ _pkgs | join(', ') }}"

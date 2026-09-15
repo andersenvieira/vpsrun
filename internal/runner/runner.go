@@ -48,6 +48,39 @@ func (r *Runner) RunScript(name string, args []string, env map[string]string, ti
 	return buf.String(), err
 }
 
+// PlaybookRunner executa playbooks Ansible a partir de um diretório base.
+type PlaybookRunner struct {
+	AnsibleDir string
+}
+
+// NewPlaybookRunner cria um runner apontando para o diretório ansible/.
+func NewPlaybookRunner(ansibleDir string) *PlaybookRunner {
+	return &PlaybookRunner{AnsibleDir: ansibleDir}
+}
+
+// RunPlaybook executa `ansible-playbook -i inventory.ini <playbook> [args...]`
+// com o diretório de trabalho em AnsibleDir. Args são passados como slice
+// (sem interpolação de string), evitando injeção.
+func (p *PlaybookRunner) RunPlaybook(playbook string, args []string, timeout time.Duration) (string, error) {
+	if _, err := exec.LookPath("ansible-playbook"); err != nil {
+		return "", fmt.Errorf("ansible-playbook não encontrado — instale com: sudo apt-get install -y ansible")
+	}
+	full := append([]string{"-i", "inventory.ini", playbook}, args...)
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "ansible-playbook", full...)
+	cmd.Dir = p.AnsibleDir
+	cmd.Env = os.Environ()
+	var buf bytes.Buffer
+	cmd.Stdout = &buf
+	cmd.Stderr = &buf
+	err := cmd.Run()
+	if ctx.Err() == context.DeadlineExceeded {
+		return buf.String(), fmt.Errorf("tempo esgotado após %s", timeout)
+	}
+	return buf.String(), err
+}
+
 // RunCommand executa um comando arbitrário (args como slice) com timeout.
 func RunCommand(timeout time.Duration, name string, args ...string) (string, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)

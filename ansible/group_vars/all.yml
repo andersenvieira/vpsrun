@@ -1,19 +1,49 @@
 ---
 # Variáveis globais do módulo de monitoramento vpsrun.
+# Segredos reais NÃO ficam aqui — vão para o cofre do vpsrun e são injetados
+# em tempo de execução via -e ou variável de ambiente (ver README).
 
+# ── Zabbix ────────────────────────────────────────────────────────────────
 # Versão do Zabbix (linha estável).
 zabbix_version: "7.0"
 
 # Servidor Zabbix que os agentes vão reportar (IP/hostname).
+# Numa instalação single-node deixe 127.0.0.1; num parque, o IP do servidor.
 zabbix_server_ip: "127.0.0.1"
 
-# Grafana é OPCIONAL. false = só Zabbix (dashboards nativos).
-grafana_enabled: false
+# Endpoint da API do Zabbix (frontend). Usado para registrar hosts,
+# provisionar o data source do Grafana e configurar autoregistro.
+zabbix_api_url: "http://{{ zabbix_server_ip }}/zabbix"
+zabbix_api_user: "Admin"
+# zabbix_api_password: injete via cofre/-e (NÃO versionar). Padrão de fábrica: zabbix
+zabbix_api_password: "{{ lookup('env', 'ZABBIX_API_PASSWORD') | default('zabbix', true) }}"
 
 # Banco do Zabbix (a senha real deve ir para o cofre do vpsrun).
 zabbix_db_name: "zabbix"
 zabbix_db_user: "zabbix"
-# zabbix_db_password: definido em tempo de execução / cofre (não versionar).
+# Senha do banco: injete via cofre/-e. Se vazia, o playbook gera uma e mostra no resumo.
+zabbix_db_password: "{{ lookup('env', 'ZABBIX_DB_PASSWORD') | default('', true) }}"
 
-# Rede a varrer na descoberta (CIDR).
+# ── Descoberta de rede ──────────────────────────────────────────────────────
+# Uma ou mais redes a varrer (CIDR). Aceita lista.
 discovery_cidr: "192.168.0.0/24"
+# Porta usada para considerar um host "vivo/gerenciável" (SSH).
+discovery_port: 22
+
+# ── Autoregistro (parque hands-off) ─────────────────────────────────────────
+# Quando os agentes sobem em modo ativo, eles se anunciam ao servidor com esta
+# metadata; a "ação" de autoregistro no servidor cria o host e linka o template.
+zabbix_autoregistration_enabled: true
+zabbix_host_metadata: "vpsrun-linux"
+# Template linkado automaticamente aos hosts Linux que se registrarem.
+zabbix_linux_template: "Linux by Zabbix agent active"
+zabbix_default_hostgroup: "vpsrun/descobertos"
+
+# ── Grafana (opcional) ──────────────────────────────────────────────────────
+# false = só Zabbix (dashboards nativos). true = instala Grafana + data source
+# Zabbix já provisionado + dashboard de visão geral importado.
+grafana_enabled: false
+grafana_admin_user: "admin"
+grafana_admin_password: "{{ lookup('env', 'GRAFANA_ADMIN_PASSWORD') | default('admin', true) }}"
+# Plugin oficial do Zabbix para Grafana.
+grafana_zabbix_plugin: "alexanderzobnin-zabbix-app"

@@ -1,11 +1,17 @@
 ---
-# Instala Zabbix Server + frontend (nginx) + MySQL/MariaDB.
-# Grafana só se grafana_enabled=true. Idempotente.
+# Instala Zabbix Server + frontend (nginx) + MySQL/MariaDB, importa o schema,
+# configura o autoregistro de agentes e (opcional) instala/provisiona o Grafana.
+# Idempotente. Alvo: grupo [zabbix_server].
 - name: Zabbix Server
   hosts: zabbix_server
   become: true
   vars_files:
     - ../group_vars/all.yml
+  vars:
+    # Se a senha do banco não veio do cofre/-e, gera uma estável por host.
+    _zbx_db_pass: >-
+      {{ zabbix_db_password if zabbix_db_password | length > 0
+         else lookup('password', '/dev/null length=24 chars=ascii_letters,digits') }}
   tasks:
     - name: Repositório oficial do Zabbix
       ansible.builtin.apt:
@@ -17,7 +23,7 @@
       ansible.builtin.apt:
         update_cache: true
 
-    - name: Pacotes do servidor Zabbix (nginx + mysql)
+    - name: Pacotes do servidor Zabbix (nginx + mysql) + libs Python
       ansible.builtin.apt:
         name:
           - zabbix-server-mysql
@@ -27,18 +33,14 @@
           - zabbix-agent2
           - mariadb-server
           - python3-pymysql
+          - nmap
         state: present
 
-    - name: Serviços ativos
+    - name: Serviço MariaDB ativo (necessário antes de criar o banco)
       ansible.builtin.systemd:
-        name: "{{ item }}"
+        name: mariadb
         enabled: true
         state: started
-      loop:
-        - mariadb
-        - zabbix-server
-        - zabbix-agent2
-        - nginx
 
     - name: Cria banco do Zabbix
       community.mysql.mysql_db:
@@ -46,36 +48,145 @@
         encoding: utf8mb4
         collation: utf8mb4_bin
         login_unix_socket: /run/mysqld/mysqld.sock
-      when: zabbix_db_password is defined
 
-    - name: Grafana (opcional)
-      ansible.builtin.debug:
-        msg: >-
-          Grafana {{ 'HABILITADO' if grafana_enabled else 'DESABILITADO' }}.
-          {{ 'Instale o pacote grafana e o data source Zabbix.' if grafana_enabled
-             else 'Usando apenas dashboards nativos do Zabbix.' }}
+    - name: Cria usuário do banco Zabbix
+      community.mysql.mysql_user:
+        name: "{{ zabbix_db_user }}"
+        password: "{{ _zbx_db_pass }}"
+        priv: "{{ zabbix_db_name }}.*:ALL"
+        host: localhost
+        login_unix_socket: /run/mysqld/mysqld.sock
 
-    - name: Instala Grafana quando habilitado
-      when: grafana_enabled | bool
+    - name: Permite trigger/function sem SUPER (log_bin_trust_function_creators)
+      community.mysql.mysql_variables:
+        variable: log_bin_trust_function_creators
+        value: "1"
+        login_unix_socket: /run/mysqld/mysqld.sock
+
+    - name: Verifica se o schema já foi importado
+      community.mysql.mysql_query:
+        login_db: "{{ zabbix_db_name }}"
+        login_unix_socket: /run/mysqld/mysqld.sock
+        query: "SHOW TABLES LIKE 'users'"
+      register: zbx_schema_check
+      changed_when: false
+
+    - name: Importa o schema inicial do Zabbix (só na 1ª vez)
+      ansible.builtin.shell:
+        cmd: >-
+          zcat /usr/share/zabbix-sql-scripts/mysql/server.sql.gz |
+          mysql --default-character-set=utf8mb4 -u{{ zabbix_db_user }} -p'{{ _zbx_db_pass }}' {{ zabbix_db_name }}
+      when: zbx_schema_check.rowcount is defined and (zbx_schema_check.rowcount[0] | int) == 0
+      no_log: true
+
+    - name: Configura DBPassword no zabbix_server.conf
+      ansible.builtin.lineinfile:
+        path: /etc/zabbix/zabbix_server.conf
+        regexp: '^#?\s*DBPassword='
+        line: "DBPassword={{ _zbx_db_pass }}"
+      no_log: true
+      notify: reiniciar zabbix-server
+
+    - name: Frontend nginx — habilita listen 80
+      ansible.builtin.lineinfile:
+        path: /etc/zabbix/nginx.conf
+        regexp: '^#?\s*listen'
+        line: "        listen          80;"
+      failed_when: false
+      notify: reiniciar nginx
+
+    - name: Serviços ativos
+      ansible.builtin.systemd:
+        name: "{{ item }}"
+        enabled: true
+        state: started
+      loop:
+        - zabbix-server
+        - zabbix-agent2
+        - nginx
+
+    # ── Autoregistro: cria host group + ação que adota agentes ativos ────────
+    - name: Configura autoregistro de agentes (via API)
+      when: zabbix_autoregistration_enabled | bool
       block:
-        - name: Repositório Grafana
-          ansible.builtin.apt_repository:
-            repo: "deb https://apt.grafana.com stable main"
-            state: present
-            filename: grafana
-        - name: Pacote Grafana
-          ansible.builtin.apt:
-            name: grafana
-            update_cache: true
-            state: present
-        - name: Serviço Grafana
-          ansible.builtin.systemd:
-            name: grafana-server
-            enabled: true
-            state: started
+        - name: Aguarda a API do Zabbix responder
+          ansible.builtin.uri:
+            url: "{{ zabbix_api_url }}/api_jsonrpc.php"
+            method: POST
+            body_format: json
+            body:
+              jsonrpc: "2.0"
+              method: "apiinfo.version"
+              id: 1
+            headers:
+              Content-Type: "application/json-rpc"
+          register: zbx_api_ping
+          retries: 30
+          delay: 5
+          until: zbx_api_ping.status == 200 and zbx_api_ping.json.result is defined
 
-    - name: Resumo
+        - name: Garante o host group padrão de descobertos
+          community.zabbix.zabbix_hostgroup:
+            host_groups:
+              - "{{ zabbix_default_hostgroup }}"
+          vars: &zbx_api
+            ansible_zabbix_url_path: ""
+            ansible_host: "{{ zabbix_server_ip }}"
+            zabbix_api_server_url: "{{ zabbix_api_url }}"
+            zabbix_api_login_user: "{{ zabbix_api_user }}"
+            zabbix_api_login_pass: "{{ zabbix_api_password }}"
+
+        - name: Cria a ação de autoregistro (adiciona host + linka template Linux)
+          community.zabbix.zabbix_action:
+            name: "vpsrun • autoregistro Linux"
+            event_source: "auto_registration"
+            status: enabled
+            conditions:
+              - type: host_metadata
+                operator: like
+                value: "{{ zabbix_host_metadata }}"
+            operations:
+              - type: add_host
+              - type: add_to_host_group
+                host_groups:
+                  - "{{ zabbix_default_hostgroup }}"
+              - type: link_to_template
+                templates:
+                  - "{{ zabbix_linux_template }}"
+          vars: *zbx_api
+
+    - name: Resumo do servidor
       ansible.builtin.debug:
-        msg: >-
-          Zabbix {{ zabbix_version }} instalado. Frontend via nginx.
-          Guarde as senhas no cofre: vpsrun vault add --group Monitoramento ...
+        msg:
+          - "Zabbix {{ zabbix_version }} instalado. Frontend nginx em http://{{ zabbix_server_ip }}/zabbix"
+          - "Login inicial: Admin / zabbix  (TROQUE no primeiro acesso)."
+          - "Senha do banco '{{ zabbix_db_name }}': guarde no cofre → vpsrun vault add --group Monitoramento --app Zabbix --type db_password --value '{{ _zbx_db_pass }}'"
+          - "Autoregistro: {{ 'ATIVO (agentes ativos entram sozinhos)' if zabbix_autoregistration_enabled else 'desligado' }}"
+      no_log: false
+
+  handlers:
+    - name: reiniciar zabbix-server
+      ansible.builtin.systemd:
+        name: zabbix-server
+        state: restarted
+    - name: reiniciar nginx
+      ansible.builtin.systemd:
+        name: nginx
+        state: restarted
+
+# ── Grafana (opcional) — roda só quando grafana_enabled=true ────────────────
+- name: Grafana (opcional)
+  hosts: zabbix_server
+  become: true
+  vars_files:
+    - ../group_vars/all.yml
+  tasks:
+    - name: Aplica a role grafana quando habilitado
+      ansible.builtin.include_role:
+        name: grafana
+      when: grafana_enabled | bool
+
+    - name: Aviso quando Grafana está desligado
+      ansible.builtin.debug:
+        msg: "Grafana DESABILITADO — usando os dashboards nativos do Zabbix. Para ligar: grafana_enabled=true e rode o playbook de novo."
+      when: not (grafana_enabled | bool)

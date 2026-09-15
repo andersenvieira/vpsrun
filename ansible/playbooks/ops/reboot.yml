@@ -1,0 +1,24 @@
+---
+# Reinício controlado de hosts em massa, um lote por vez para não derrubar tudo.
+#
+# Uso:
+#   ansible-playbook -i inventory.ini playbooks/ops/reboot.yml -e 'target=web'
+#   ... -e 'batch=1'   # reinicia 1 host por vez (rolling)
+- name: Reinício controlado
+  hosts: "{{ target | default('all') }}"
+  become: true
+  serial: "{{ batch | default('30%') }}"
+  tasks:
+    - name: Reinicia e aguarda voltar
+      ansible.builtin.reboot:
+        reboot_timeout: 600
+        msg: "Reboot orquestrado pelo vpsrun"
+
+    - name: Confirma que voltou
+      ansible.builtin.command: uptime
+      register: up
+      changed_when: false
+
+    - name: Resumo
+      ansible.builtin.debug:
+        msg: "{{ inventory_hostname }} voltou: {{ up.stdout | trim }}"

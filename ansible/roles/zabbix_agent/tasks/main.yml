@@ -1,12 +1,19 @@
 ---
-# Role idempotente do agente Zabbix. Detecta a família do SO e instala o
-# agente adequado, apontando para o servidor definido em group_vars.
+# Role idempotente do agente Zabbix. Detecta a família do SO, instala o
+# agente adequado e o configura em modo ATIVO com autoregistro, de modo que o
+# host apareça sozinho no servidor (sem cadastro manual).
 - name: Instala agente (Debian/Ubuntu)
   when: ansible_os_family == "Debian"
-  ansible.builtin.apt:
-    name: zabbix-agent2
-    update_cache: true
-    state: present
+  block:
+    - name: Repositório Zabbix (Debian/Ubuntu)
+      ansible.builtin.apt:
+        deb: "https://repo.zabbix.com/zabbix/{{ zabbix_version }}/debian/pool/main/z/zabbix-release/zabbix-release_latest+debian{{ ansible_distribution_major_version }}_all.deb"
+      failed_when: false
+    - name: Instala zabbix-agent2 (apt)
+      ansible.builtin.apt:
+        name: zabbix-agent2
+        update_cache: true
+        state: present
 
 - name: Instala agente (RedHat/CentOS/Rocky)
   when: ansible_os_family == "RedHat"
@@ -14,19 +21,17 @@
     name: zabbix-agent2
     state: present
 
-- name: Configura o servidor de destino
+- name: Configura o agente (servidor, ativo, autoregistro, hostname)
   ansible.builtin.lineinfile:
     path: /etc/zabbix/zabbix_agent2.conf
-    regexp: '^Server='
-    line: "Server={{ zabbix_server_ip }}"
+    regexp: "{{ item.re }}"
+    line: "{{ item.line }}"
     create: false
-  notify: reiniciar zabbix-agent2
-
-- name: Hostname do agente
-  ansible.builtin.lineinfile:
-    path: /etc/zabbix/zabbix_agent2.conf
-    regexp: '^Hostname='
-    line: "Hostname={{ inventory_hostname }}"
+  loop:
+    - { re: '^#?\s*Server=',           line: "Server={{ zabbix_server_ip }}" }
+    - { re: '^#?\s*ServerActive=',      line: "ServerActive={{ zabbix_server_ip }}" }
+    - { re: '^#?\s*Hostname=',          line: "Hostname={{ inventory_hostname }}" }
+    - { re: '^#?\s*HostMetadata=',      line: "HostMetadata={{ zabbix_host_metadata }}" }
   notify: reiniciar zabbix-agent2
 
 - name: Garante o serviço ativo

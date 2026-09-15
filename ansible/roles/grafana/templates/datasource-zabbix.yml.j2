@@ -1,0 +1,19 @@
+# Gerado pelo vpsrun — data source Zabbix para Grafana.
+apiVersion: 1
+datasources:
+  - name: Zabbix
+    uid: vpsrun-zabbix
+    type: {{ grafana_zabbix_plugin }}
+    access: proxy
+    url: {{ zabbix_api_url }}/api_jsonrpc.php
+    isDefault: true
+    jsonData:
+      username: {{ zabbix_api_user }}
+      trends: true
+      trendsFrom: "7d"
+      trendsRange: "4d"
+      cacheTTL: "1h"
+    secureJsonData:
+      password: {{ zabbix_api_password }}
+    version: 1
+    editable: true

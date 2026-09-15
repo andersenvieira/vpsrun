@@ -40,6 +40,24 @@ func ScriptsDir() string {
 	return "scripts"
 }
 
+// AnsibleDir localiza o diretório dos playbooks Ansible.
+// Ordem: $VPSRUN_ANSIBLE, ./ansible, ~/Documents/VPSRUN/ansible, diretório atual.
+func AnsibleDir() string {
+	if p := os.Getenv("VPSRUN_ANSIBLE"); p != "" {
+		return p
+	}
+	candidates := []string{"ansible"}
+	if home, err := os.UserHomeDir(); err == nil {
+		candidates = append(candidates, filepath.Join(home, "Documents", "VPSRUN", "ansible"))
+	}
+	for _, c := range candidates {
+		if st, err := os.Stat(c); err == nil && st.IsDir() {
+			return c
+		}
+	}
+	return "ansible"
+}
+
 // VaultExists indica se já há um cofre criado.
 func VaultExists() bool {
 	_, err := os.Stat(VaultPath())

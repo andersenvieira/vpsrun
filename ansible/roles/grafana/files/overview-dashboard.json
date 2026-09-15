@@ -1,0 +1,116 @@
+{
+  "annotations": { "list": [] },
+  "editable": true,
+  "graphTooltip": 1,
+  "title": "vpsrun • Visão Geral",
+  "uid": "vpsrun-overview",
+  "tags": ["vpsrun", "zabbix"],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "time": { "from": "now-6h", "to": "now" },
+  "refresh": "1m",
+  "templating": {
+    "list": [
+      {
+        "name": "host",
+        "type": "query",
+        "datasource": { "type": "alexanderzobnin-zabbix-app", "uid": "vpsrun-zabbix" },
+        "query": { "queryType": "3", "group": { "filter": "/.*/" }, "host": { "filter": "/.*/" } },
+        "refresh": 2,
+        "includeAll": true,
+        "multi": true,
+        "current": { "text": "All", "value": "$__all" }
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 1,
+      "title": "CPU utilization (%)",
+      "type": "timeseries",
+      "datasource": { "type": "alexanderzobnin-zabbix-app", "uid": "vpsrun-zabbix" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
+      "fieldConfig": { "defaults": { "unit": "percent", "min": 0, "max": 100 }, "overrides": [] },
+      "targets": [
+        {
+          "queryType": "0",
+          "datasource": { "type": "alexanderzobnin-zabbix-app", "uid": "vpsrun-zabbix" },
+          "group": { "filter": "/.*/" },
+          "host": { "filter": "/$host/" },
+          "application": { "filter": "" },
+          "item": { "filter": "CPU utilization" }
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "title": "Memory utilization (%)",
+      "type": "timeseries",
+      "datasource": { "type": "alexanderzobnin-zabbix-app", "uid": "vpsrun-zabbix" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
+      "fieldConfig": { "defaults": { "unit": "percent", "min": 0, "max": 100 }, "overrides": [] },
+      "targets": [
+        {
+          "queryType": "0",
+          "datasource": { "type": "alexanderzobnin-zabbix-app", "uid": "vpsrun-zabbix" },
+          "group": { "filter": "/.*/" },
+          "host": { "filter": "/$host/" },
+          "application": { "filter": "" },
+          "item": { "filter": "Memory utilization" }
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "title": "Filesystem used (%)",
+      "type": "timeseries",
+      "datasource": { "type": "alexanderzobnin-zabbix-app", "uid": "vpsrun-zabbix" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
+      "fieldConfig": { "defaults": { "unit": "percent", "min": 0, "max": 100 }, "overrides": [] },
+      "targets": [
+        {
+          "queryType": "0",
+          "datasource": { "type": "alexanderzobnin-zabbix-app", "uid": "vpsrun-zabbix" },
+          "group": { "filter": "/.*/" },
+          "host": { "filter": "/$host/" },
+          "application": { "filter": "" },
+          "item": { "filter": "/Space utilization.*/" }
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "title": "Network traffic (bps)",
+      "type": "timeseries",
+      "datasource": { "type": "alexanderzobnin-zabbix-app", "uid": "vpsrun-zabbix" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 },
+      "fieldConfig": { "defaults": { "unit": "bps" }, "overrides": [] },
+      "targets": [
+        {
+          "queryType": "0",
+          "datasource": { "type": "alexanderzobnin-zabbix-app", "uid": "vpsrun-zabbix" },
+          "group": { "filter": "/.*/" },
+          "host": { "filter": "/$host/" },
+          "application": { "filter": "" },
+          "item": { "filter": "/Bits (received|sent).*/" }
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "title": "Hosts com problemas",
+      "type": "table",
+      "datasource": { "type": "alexanderzobnin-zabbix-app", "uid": "vpsrun-zabbix" },
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 16 },
+      "targets": [
+        {
+          "queryType": "5",
+          "datasource": { "type": "alexanderzobnin-zabbix-app", "uid": "vpsrun-zabbix" },
+          "group": { "filter": "/.*/" },
+          "host": { "filter": "/.*/" },
+          "showProblems": "problems"
+        }
+      ]
+    }
+  ]
+}

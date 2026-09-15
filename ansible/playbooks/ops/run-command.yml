@@ -1,0 +1,30 @@
+---
+# Executa um comando ad-hoc em massa (ferramenta de plantão do NOC).
+# Use com responsabilidade — roda como root nos alvos.
+#
+# Uso:
+#   ansible-playbook -i inventory.ini playbooks/ops/run-command.yml \
+#       -e 'cmd="systemctl status nginx --no-pager"'
+#   ... -e 'target=web' -e 'become=false'
+- name: Comando ad-hoc em massa
+  hosts: "{{ target | default('all') }}"
+  become: "{{ become | default(true) }}"
+  gather_facts: false
+  tasks:
+    - name: Valida entrada
+      ansible.builtin.assert:
+        that: cmd is defined and (cmd | length) > 0
+        fail_msg: "Informe -e 'cmd=\"seu comando\"'"
+
+    - name: Executa
+      ansible.builtin.shell: "{{ cmd }}"
+      register: out
+      changed_when: false
+      failed_when: false
+
+    - name: Saída
+      ansible.builtin.debug:
+        msg: |
+          ── {{ inventory_hostname }} (rc={{ out.rc }}) ──
+          {{ out.stdout | default('') }}
+          {{ ('STDERR: ' + out.stderr) if out.stderr | default('') | length > 0 else '' }}

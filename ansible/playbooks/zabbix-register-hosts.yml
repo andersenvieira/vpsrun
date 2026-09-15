@@ -1,0 +1,42 @@
+---
+# Registra hosts no Zabbix via API (alternativa ao autoregistro, útil para
+# hosts monitorados por agente passivo, SNMP ou sem SSH).
+#
+# Preencha o grupo [monitored] no inventory.ini com os hosts a registrar.
+# Uso:
+#   ansible-playbook -i inventory.ini playbooks/zabbix-register-hosts.yml
+- name: Registrar hosts monitorados no Zabbix
+  hosts: monitored
+  gather_facts: false
+  vars_files:
+    - ../group_vars/all.yml
+  vars:
+    ansible_zabbix_url_path: ""
+    ansible_host: "{{ zabbix_server_ip }}"
+    zabbix_api_server_url: "{{ zabbix_api_url }}"
+    zabbix_api_login_user: "{{ zabbix_api_user }}"
+    zabbix_api_login_pass: "{{ zabbix_api_password }}"
+  tasks:
+    - name: Garante o host group
+      community.zabbix.zabbix_hostgroup:
+        host_groups:
+          - "{{ zabbix_default_hostgroup }}"
+      run_once: true
+      delegate_to: localhost
+
+    - name: Registra o host com o template Linux e interface do agente
+      community.zabbix.zabbix_host:
+        host_name: "{{ inventory_hostname }}"
+        host_groups:
+          - "{{ zabbix_default_hostgroup }}"
+        link_templates:
+          - "{{ zabbix_linux_template }}"
+        status: enabled
+        interfaces:
+          - type: agent
+            main: 1
+            useip: 1
+            ip: "{{ ansible_host_target | default(inventory_hostname) }}"
+            dns: ""
+            port: "10050"
+      delegate_to: localhost
