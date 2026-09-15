@@ -238,7 +238,17 @@ MENU
   case "$(ask 'vpsrun>')" in
     1) run_playbook playbooks/zabbix-server.yml; show_access; pause;;
     2) run_playbook playbooks/zabbix-server.yml -e grafana_enabled=true; show_access; pause;;
-    3) c="$(ask 'CIDR [enter=usar group_vars]:')"; if [ -n "$c" ]; then run_playbook playbooks/discovery.yml -e "discovery_cidr=$c"; else run_playbook playbooks/discovery.yml; fi; pause;;
+    3) c="$(ask 'CIDR (ex: 192.168.244.0/23):')"
+       x="$(ask 'Excluir hosts? (ex: 192.168.244.1 — vazio=nenhum):')"
+       m="$(ask 'Só MAPEAR a rede, sem instalar agente? [S/n]:')"
+       ea=""
+       [ -n "$c" ] && ea="$ea -e discovery_cidr=$c"
+       [ -n "$x" ] && ea="$ea -e discovery_exclude=$x"
+       case "$m" in n|N) : ;; *) ea="$ea -e discovery_scan_only=true";; esac
+       # shellcheck disable=SC2086
+       run_playbook playbooks/discovery.yml $ea
+       [ -f "$DIR/ansible/discovery-report.txt" ] && { echo; ok "Relatório da rede (também em $DIR/ansible/discovery-report.txt):"; sed 's/^/   /' "$DIR/ansible/discovery-report.txt"; }
+       pause;;
     4) run_playbook playbooks/zabbix-register-hosts.yml; pause;;
     5) menu_ops;;
     6) ( cd "$DIR/scripts" 2>/dev/null && bash backup-vps.sh ) || warn "scripts/backup-vps.sh não encontrado"; pause;;

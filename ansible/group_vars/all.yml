@@ -29,6 +29,10 @@ zabbix_db_password: "{{ lookup('env', 'ZABBIX_DB_PASSWORD') | default('', true) 
 discovery_cidr: "192.168.0.0/24"
 # Porta usada para considerar um host "vivo/gerenciável" (SSH).
 discovery_port: 22
+# Hosts a PULAR na varredura (ex.: firewall/gateway). Lista separada por vírgula.
+discovery_exclude: ""
+# true = só mapeia a rede e gera o relatório, SEM tentar instalar agente por SSH.
+discovery_scan_only: false
 
 # ── Autoregistro (parque hands-off) ─────────────────────────────────────────
 # Quando os agentes sobem em modo ativo, eles se anunciam ao servidor com esta

@@ -18,8 +18,11 @@
       ansible.builtin.set_fact:
         _cidrs: "{{ discovery_cidr if discovery_cidr is iterable and discovery_cidr is not string else [discovery_cidr] }}"
 
-    - name: Varre cada CIDR em busca de hosts com SSH aberto
-      ansible.builtin.command: "nmap -n -p{{ discovery_port }} --open -oG - {{ item }}"
+    - name: Varre cada CIDR em busca de hosts com SSH aberto (pulando exclusões)
+      ansible.builtin.command: >-
+        nmap -n -p{{ discovery_port }} --open
+        {{ ('--exclude ' + discovery_exclude) if (discovery_exclude | default('') | length > 0) else '' }}
+        -oG - {{ item }}
       register: nmap_out
       changed_when: false
       failed_when: false
@@ -29,15 +32,19 @@
       ansible.builtin.set_fact:
         discovered_hosts: "{{ (nmap_out.results | map(attribute='stdout') | join('\n')) | regex_findall('Host: ([0-9.]+)') | unique }}"
 
-    - name: Adiciona hosts descobertos ao grupo em memória
+    - name: Relatório da descoberta
+      ansible.builtin.debug:
+        msg:
+          - "Hosts com SSH encontrados ({{ discovered_hosts | default([]) | length }}): {{ discovered_hosts | default([]) }}"
+          - "{{ 'MODO SÓ-MAPEAR: nenhum agente será instalado.' if (discovery_scan_only | default(false) | bool) else 'Vou tentar instalar o agente Zabbix por SSH nesses hosts.' }}"
+          - "Excluídos da varredura: {{ discovery_exclude | default('(nenhum)') }}"
+
+    - name: Adiciona hosts descobertos ao grupo em memória (só se for instalar agente)
       ansible.builtin.add_host:
         name: "{{ item }}"
         groups: discovered
       loop: "{{ discovered_hosts | default([]) }}"
-
-    - name: Relatório da descoberta
-      ansible.builtin.debug:
-        msg: "Hosts com SSH ({{ discovered_hosts | default([]) | length }}): {{ discovered_hosts | default([]) }}"
+      when: not (discovery_scan_only | default(false) | bool)
 
     - name: Grava relatório da descoberta em disco
       ansible.builtin.copy:
