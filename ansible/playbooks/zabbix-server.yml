@@ -325,13 +325,43 @@
               - "Motivo: {{ ansible_failed_result.msg | default('a API do frontend ainda não respondeu') }}"
               - "Depois rode de novo o playbook, ou crie a ação de autoregistro no frontend."
 
+    - name: Salva as credenciais num arquivo protegido (só root)
+      ansible.builtin.copy:
+        dest: /root/vpsrun-zabbix.txt
+        owner: root
+        group: root
+        mode: "0600"
+        content: |
+          vpsrun — credenciais do Zabbix
+          Gerado em: {{ ansible_date_time.iso8601 | default('') }}
+
+          Painel Zabbix : http://{{ zabbix_server_ip }}{{ ':' + _fe_port if _fe_port != '80' else '' }}/
+          Login inicial : Admin / zabbix   (troque no primeiro acesso)
+
+          Banco de dados '{{ zabbix_db_name }}' (usuário {{ zabbix_db_user }})
+          SENHA DO BANCO: {{ _zbx_db_pass }}
+
+          Guarde a senha no cofre:
+            vpsrun vault add --group Monitoramento --app Zabbix --type db_password --value '{{ _zbx_db_pass }}'
+      no_log: true
+
     - name: Resumo do servidor
       ansible.builtin.debug:
         msg:
-          - "Zabbix {{ zabbix_version }} instalado. Frontend em http://{{ zabbix_server_ip }}{{ ':' + _fe_port if _fe_port != '80' else '' }}/"
-          - "Login inicial: Admin / zabbix  (TROQUE no primeiro acesso)."
-          - "Senha do banco '{{ zabbix_db_name }}': guarde no cofre → vpsrun vault add --group Monitoramento --app Zabbix --type db_password --value '{{ _zbx_db_pass }}'"
-          - "Autoregistro: {{ 'ATIVO (agentes ativos entram sozinhos)' if zabbix_autoregistration_enabled else 'desligado' }}"
+          - ""
+          - "═══════════════════════════════════════════════════════════════"
+          - "  ✅  ZABBIX {{ zabbix_version }} INSTALADO"
+          - ""
+          - "  Painel : http://{{ zabbix_server_ip }}{{ ':' + _fe_port if _fe_port != '80' else '' }}/"
+          - "  Login  : Admin / zabbix   (TROQUE no primeiro acesso)"
+          - "  Auto   : {{ 'agentes ativos entram sozinhos' if zabbix_autoregistration_enabled else 'desligado' }}"
+          - "───────────────────────────────────────────────────────────────"
+          - "  🔑  SENHA DO BANCO (ANOTE — não some mais nada abaixo dela):"
+          - ""
+          - "        {{ _zbx_db_pass }}"
+          - ""
+          - "  Também salva em:  /root/vpsrun-zabbix.txt  (só root, chmod 600)"
+          - "═══════════════════════════════════════════════════════════════"
       no_log: false
 
   handlers:

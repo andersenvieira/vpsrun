@@ -98,8 +98,29 @@
     enabled: true
     state: started
 
+- name: Anexa as credenciais do Grafana ao arquivo protegido
+  ansible.builtin.blockinfile:
+    path: /root/vpsrun-zabbix.txt
+    create: true
+    owner: root
+    group: root
+    mode: "0600"
+    marker: "# {mark} GRAFANA"
+    block: |
+      Painel Grafana : http://{{ zabbix_server_ip }}:3000/
+      Login Grafana  : {{ grafana_admin_user }} / {{ grafana_admin_password }}
+      Dashboard      : "vpsrun • Visão Geral" (pasta vpsrun)
+  no_log: true
+
 - name: Resumo Grafana
   ansible.builtin.debug:
     msg:
-      - "Grafana em http://{{ zabbix_server_ip }}:3000  (admin / senha definida)"
-      - "Data source Zabbix já provisionado; dashboard 'vpsrun • Visão Geral' importado."
+      - ""
+      - "═══════════════════════════════════════════════════════════════"
+      - "  ✅  GRAFANA INSTALADO"
+      - ""
+      - "  Painel : http://{{ zabbix_server_ip }}:3000/"
+      - "  Login  : {{ grafana_admin_user }} / {{ grafana_admin_password }}"
+      - "  Painel pronto: 'vpsrun • Visão Geral' (pasta vpsrun)"
+      - "  Credenciais também em: /root/vpsrun-zabbix.txt"
+      - "═══════════════════════════════════════════════════════════════"
