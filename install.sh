@@ -252,8 +252,26 @@ PASSO1
    1) Só MAPEAR a rede (não instala nada)      ← recomendado p/ começar
    2) MONITORAR: instalar o agente Zabbix nos hosts encontrados
 PASSO2
+  local ssh_args="" suser skey auth
   case "$(ask 'estratégia>')" in
-    2) scan="false";;
+    2) scan="false"
+       echo
+       echo "  Para instalar o agente eu preciso ENTRAR por SSH em cada host."
+       echo "  (hosts sem esse acesso são apenas pulados, não trava o resto)"
+       suser="$(ask '  Usuário SSH dos hosts [root]:')"; suser="${suser:-root}"
+       echo "   1) Chave SSH (recomendado — sem senha)"
+       echo "   2) Senha (a mesma para todos os hosts)"
+       auth="$(ask '  Como autenticar? [1/2]:')"
+       case "$auth" in
+         2) command -v sshpass >/dev/null 2>&1 || { log "instalando sshpass…"; { [ "$FAMILY" = debian ] && apt-get install -y sshpass; } >/dev/null 2>&1 || true; }
+            ssh_args="--ask-pass -e ansible_user=$suser"
+            echo "  (o Ansible vai te pedir a senha SSH uma vez, ao iniciar)";;
+         *) skey="$(ask "  Caminho da chave [$HOME/.ssh/id_rsa]:")"; skey="${skey:-$HOME/.ssh/id_rsa}"
+            if [ ! -f "$skey" ]; then
+              warn "chave $skey não encontrada — gere/copeie a chave antes, ou use autenticação por senha."
+            fi
+            ssh_args="-e ansible_user=$suser -e ansible_ssh_private_key_file=$skey";;
+       esac;;
     *) scan="true";;
   esac
 
@@ -264,10 +282,10 @@ PASSO2
   x2="$(ask '  Excluir mais algum IP? (separe por vírgula, vazio=não):')"
   [ -n "$x2" ] && exc="${exc:+$exc,}$x2"
 
-  ea="-e discovery_cidr=$alvo -e discovery_scan_only=$scan"
+  ea="-e discovery_cidr=$alvo -e discovery_scan_only=$scan $ssh_args"
   [ -n "$exc" ] && ea="$ea -e discovery_exclude=$exc"
   echo
-  ok "Resumo → faixa: $alvo  ·  $([ "$scan" = true ] && echo 'só mapear' || echo 'instalar agentes')  ·  excluir: ${exc:-nenhum}"
+  ok "Resumo → faixa: $alvo  ·  $([ "$scan" = true ] && echo 'só mapear' || echo "instalar agentes (SSH: $suser)")  ·  excluir: ${exc:-nenhum}"
   confirm "Pode rodar?" || { warn "cancelado"; return; }
   # shellcheck disable=SC2086
   run_playbook playbooks/discovery.yml $ea
