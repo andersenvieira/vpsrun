@@ -8,9 +8,18 @@
   vars_files:
     - ../group_vars/all.yml
   tasks:
-    - name: Define a senha do banco UMA vez (cofre/-e ou gerada)
+    - name: Reaproveita a senha do banco já existente (idempotência)
+      ansible.builtin.shell: "grep -oP '^DBPassword=\\K.*' /etc/zabbix/zabbix_server.conf 2>/dev/null || true"
+      register: _existing_pass
+      changed_when: false
+      no_log: true
+
+    - name: Define a senha do banco UMA vez (existente > cofre/-e > gerada)
       ansible.builtin.set_fact:
-        _zbx_db_pass: "{{ zabbix_db_password if zabbix_db_password | length > 0 else lookup('password', '/dev/null length=24 chars=ascii_letters,digits') }}"
+        _zbx_db_pass: >-
+          {{ zabbix_db_password if (zabbix_db_password | length > 0)
+             else (_existing_pass.stdout | trim if (_existing_pass.stdout | trim | length > 0)
+                   else lookup('password', '/dev/null length=24 chars=ascii_letters,digits')) }}
       no_log: true
 
     - name: Repositório oficial do Zabbix
