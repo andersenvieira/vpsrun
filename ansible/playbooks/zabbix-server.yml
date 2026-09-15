@@ -335,7 +335,7 @@
           vpsrun — credenciais do Zabbix
           Gerado em: {{ ansible_date_time.iso8601 | default('') }}
 
-          Painel Zabbix : http://{{ zabbix_server_ip }}{{ ':' + _fe_port if _fe_port != '80' else '' }}/
+          Painel Zabbix : http://{{ ansible_default_ipv4.address | default(zabbix_server_ip) }}{{ ':' + _fe_port if _fe_port != '80' else '' }}/
           Login inicial : Admin / zabbix   (troque no primeiro acesso)
 
           Banco de dados '{{ zabbix_db_name }}' (usuário {{ zabbix_db_user }})
@@ -352,7 +352,7 @@
           - "═══════════════════════════════════════════════════════════════"
           - "  ✅  ZABBIX {{ zabbix_version }} INSTALADO"
           - ""
-          - "  Painel : http://{{ zabbix_server_ip }}{{ ':' + _fe_port if _fe_port != '80' else '' }}/"
+          - "  Painel : http://{{ ansible_default_ipv4.address | default(zabbix_server_ip) }}{{ ':' + _fe_port if _fe_port != '80' else '' }}/"
           - "  Login  : Admin / zabbix   (TROQUE no primeiro acesso)"
           - "  Auto   : {{ 'agentes ativos entram sozinhos' if zabbix_autoregistration_enabled else 'desligado' }}"
           - "───────────────────────────────────────────────────────────────"

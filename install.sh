@@ -153,7 +153,17 @@ confirm() {
   case "$r" in s|S|y|Y) return 0;; *) return 1;; esac
 }
 ask() { local __v; read -r -p "$1 " __v <"$TTY" || __v=""; printf '%s' "$__v"; }
-pause() { read -r -p "  (enter para voltar ao menu) " _ <"$TTY" || true; }
+pause() { echo; read -r -p "  ▸ Pressione ENTER para voltar ao menu " _ <"$TTY" || true; }
+
+# Mostra o painel de acessos (URLs + credenciais) gravado pelos playbooks.
+show_access() {
+  [ -f /root/vpsrun-zabbix.txt ] || return 0
+  echo
+  ok "════════ ACESSOS — anote ou recupere depois ════════"
+  sed 's/^/   /' /root/vpsrun-zabbix.txt
+  echo "   ──────────────────────────────────────────────────"
+  echo "   Recupere quando quiser:  sudo cat /root/vpsrun-zabbix.txt"
+}
 
 # ── modo direto (flags de ação) ─────────────────────────────────────────────
 if [ "$FORCE_MENU" -eq 0 ]; then
@@ -226,8 +236,8 @@ while :; do
   └───────────────────────────────────────────────────────────┘
 MENU
   case "$(ask 'vpsrun>')" in
-    1) run_playbook playbooks/zabbix-server.yml; pause;;
-    2) run_playbook playbooks/zabbix-server.yml -e grafana_enabled=true; pause;;
+    1) run_playbook playbooks/zabbix-server.yml; show_access; pause;;
+    2) run_playbook playbooks/zabbix-server.yml -e grafana_enabled=true; show_access; pause;;
     3) c="$(ask 'CIDR [enter=usar group_vars]:')"; if [ -n "$c" ]; then run_playbook playbooks/discovery.yml -e "discovery_cidr=$c"; else run_playbook playbooks/discovery.yml; fi; pause;;
     4) run_playbook playbooks/zabbix-register-hosts.yml; pause;;
     5) menu_ops;;

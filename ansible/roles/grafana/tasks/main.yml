@@ -108,7 +108,7 @@
     mode: "0600"
     marker: "# {mark} GRAFANA"
     block: |
-      Painel Grafana : http://{{ zabbix_server_ip }}:3000/
+      Painel Grafana : http://{{ ansible_default_ipv4.address | default(zabbix_server_ip) }}:3000/
       Login Grafana  : {{ grafana_admin_user }} / {{ grafana_admin_password }}
       Dashboard      : "vpsrun • Visão Geral" (pasta vpsrun)
   no_log: true
@@ -120,7 +120,7 @@
       - "═══════════════════════════════════════════════════════════════"
       - "  ✅  GRAFANA INSTALADO"
       - ""
-      - "  Painel : http://{{ zabbix_server_ip }}:3000/"
+      - "  Painel : http://{{ ansible_default_ipv4.address | default(zabbix_server_ip) }}:3000/"
       - "  Login  : {{ grafana_admin_user }} / {{ grafana_admin_password }}"
       - "  Painel pronto: 'vpsrun • Visão Geral' (pasta vpsrun)"
       - "  Credenciais também em: /root/vpsrun-zabbix.txt"
