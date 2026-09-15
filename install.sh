@@ -217,6 +217,68 @@ MENU
   done
 }
 
+# Assistente guiado de descoberta de rede (opções prontas, dados pré-preenchidos).
+menu_discovery() {
+  local myip pfx alvo scan exc ini fim r x2 ea
+  myip="$(hostname -I 2>/dev/null | awk '{print $1}')"
+  pfx="$(printf '%s' "$myip" | awk -F. 'NF>=3{print $1"."$2"."$3}')"
+  [ -n "$pfx" ] || pfx="192.168.0"
+
+  echo
+  cat <<PASSO1
+
+  ── Descoberta · passo 1 de 2: QUAL faixa escanear? ─────────
+   1) Minha rede local inteira        ($pfx.0/24)
+   2) Uma faixa de IPs desta rede      (ex.: de $pfx.2 até $pfx.50)
+   3) Outra rede (digitar)            (ex.: 10.0.0.0/24)
+   4) Um único computador             (ex.: $pfx.10)
+   0) Cancelar
+PASSO1
+  case "$(ask 'faixa>')" in
+    1) alvo="$pfx.0/24";;
+    2) ini="$(ask "  Número inicial (só o final, ex.: 2):")"
+       fim="$(ask "  Número final   (só o final, ex.: 50):")"
+       [ -n "$ini" ] && [ -n "$fim" ] && alvo="$pfx.$ini-$fim";;
+    3) alvo="$(ask '  Digite a rede/CIDR (ex.: 10.0.0.0/24):')";;
+    4) alvo="$(ask "  Digite o IP (ex.: $pfx.10):")";;
+    *) return;;
+  esac
+  [ -n "$alvo" ] || { warn "faixa não informada"; return; }
+
+  echo
+  cat <<PASSO2
+
+  ── Descoberta · passo 2 de 2: O QUE fazer com o que achar? ──
+   1) Só MAPEAR a rede (não instala nada)      ← recomendado p/ começar
+   2) MONITORAR: instalar o agente Zabbix nos hosts encontrados
+PASSO2
+  case "$(ask 'estratégia>')" in
+    2) scan="false";;
+    *) scan="true";;
+  esac
+
+  # Por padrão pula o gateway/firewall (.1) — a causa mais comum de problema.
+  exc="$pfx.1"
+  r="$(ask "  Pular o firewall/gateway ($pfx.1)? [S/n]:")"
+  case "$r" in n|N) exc="";; esac
+  x2="$(ask '  Excluir mais algum IP? (separe por vírgula, vazio=não):')"
+  [ -n "$x2" ] && exc="${exc:+$exc,}$x2"
+
+  ea="-e discovery_cidr=$alvo -e discovery_scan_only=$scan"
+  [ -n "$exc" ] && ea="$ea -e discovery_exclude=$exc"
+  echo
+  ok "Resumo → faixa: $alvo  ·  $([ "$scan" = true ] && echo 'só mapear' || echo 'instalar agentes')  ·  excluir: ${exc:-nenhum}"
+  confirm "Pode rodar?" || { warn "cancelado"; return; }
+  # shellcheck disable=SC2086
+  run_playbook playbooks/discovery.yml $ea
+  [ -f "$DIR/ansible/discovery-report.txt" ] && { echo; ok "Relatório da rede (salvo em $DIR/ansible/discovery-report.txt):"; sed 's/^/   /' "$DIR/ansible/discovery-report.txt"; }
+  return 0
+}
+
+# A partir daqui é o menu interativo: uma tarefa que falha NÃO deve derrubar o
+# menu (o usuário volta e tenta outra). A fase de preparação acima seguiu estrita.
+set +e
+
 while :; do
   cat <<MENU
 
@@ -238,17 +300,7 @@ MENU
   case "$(ask 'vpsrun>')" in
     1) run_playbook playbooks/zabbix-server.yml; show_access; pause;;
     2) run_playbook playbooks/zabbix-server.yml -e grafana_enabled=true; show_access; pause;;
-    3) c="$(ask 'CIDR (ex: 192.168.244.0/23):')"
-       x="$(ask 'Excluir hosts? (ex: 192.168.244.1 — vazio=nenhum):')"
-       m="$(ask 'Só MAPEAR a rede, sem instalar agente? [S/n]:')"
-       ea=""
-       [ -n "$c" ] && ea="$ea -e discovery_cidr=$c"
-       [ -n "$x" ] && ea="$ea -e discovery_exclude=$x"
-       case "$m" in n|N) : ;; *) ea="$ea -e discovery_scan_only=true";; esac
-       # shellcheck disable=SC2086
-       run_playbook playbooks/discovery.yml $ea
-       [ -f "$DIR/ansible/discovery-report.txt" ] && { echo; ok "Relatório da rede (também em $DIR/ansible/discovery-report.txt):"; sed 's/^/   /' "$DIR/ansible/discovery-report.txt"; }
-       pause;;
+    3) menu_discovery; pause;;
     4) run_playbook playbooks/zabbix-register-hosts.yml; pause;;
     5) menu_ops;;
     6) ( cd "$DIR/scripts" 2>/dev/null && bash backup-vps.sh ) || warn "scripts/backup-vps.sh não encontrado"; pause;;
