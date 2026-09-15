@@ -67,15 +67,35 @@ esac
 log "Distro: ${PRETTY_NAME:-desconhecida} (família $FAMILY)"
 
 # ── dependências base ───────────────────────────────────────────────────────
-log "Instalando dependências (ansible, nmap, git, curl)… (pode levar 1-2 min)"
+# ansible-core >= 2.15? (as coleções modernas do Zabbix exigem)
+_ansible_ok() {
+  command -v ansible-playbook >/dev/null 2>&1 || return 1
+  local v a b
+  v="$(ansible-playbook --version 2>/dev/null | head -1 | grep -oE '[0-9]+\.[0-9]+' | head -1)"
+  [ -n "$v" ] || return 1
+  a="${v%%.*}"; b="${v#*.}"
+  [ "$a" -gt 2 ] || { [ "$a" -eq 2 ] && [ "$b" -ge 15 ]; }
+}
+
+log "Instalando dependências (nmap, git, curl, python)… (pode levar 1-2 min)"
 if [ "$FAMILY" = "debian" ]; then
   export DEBIAN_FRONTEND=noninteractive
   apt-get update
-  apt-get install -y ansible nmap git curl ca-certificates
+  apt-get install -y nmap git curl ca-certificates python3-pip python3-venv
 else
-  dnf install -y ansible nmap git curl || yum install -y ansible nmap git curl
+  (dnf install -y nmap git curl python3-pip || yum install -y nmap git curl python3-pip)
 fi
-ok "Dependências prontas."
+
+if _ansible_ok; then
+  ok "Ansible compatível: $(ansible-playbook --version | head -1)."
+else
+  log "Ansible do sistema é antigo/ausente — instalando ansible-core moderno via pip…"
+  python3 -m pip install --break-system-packages --upgrade 'ansible-core>=2.16' \
+    || python3 -m pip install --upgrade 'ansible-core>=2.16'
+  hash -r
+  _ansible_ok && ok "Ansible instalado: $(ansible-playbook --version | head -1)." \
+    || warn "ansible-playbook ainda parece antigo — confira se /usr/local/bin vem antes de /usr/bin no PATH."
+fi
 
 # ── obter o kit ─────────────────────────────────────────────────────────────
 # 1) Rodando de dentro de um checkout (tem build.sh + ansible/)? Usa no lugar.

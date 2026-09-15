@@ -7,12 +7,12 @@
   become: true
   vars_files:
     - ../group_vars/all.yml
-  vars:
-    # Se a senha do banco não veio do cofre/-e, gera uma estável por host.
-    _zbx_db_pass: >-
-      {{ zabbix_db_password if zabbix_db_password | length > 0
-         else lookup('password', '/dev/null length=24 chars=ascii_letters,digits') }}
   tasks:
+    - name: Define a senha do banco UMA vez (cofre/-e ou gerada)
+      ansible.builtin.set_fact:
+        _zbx_db_pass: "{{ zabbix_db_password if zabbix_db_password | length > 0 else lookup('password', '/dev/null length=24 chars=ascii_letters,digits') }}"
+      no_log: true
+
     - name: Repositório oficial do Zabbix
       ansible.builtin.apt:
         deb: "https://repo.zabbix.com/zabbix/{{ zabbix_version }}/debian/pool/main/z/zabbix-release/zabbix-release_latest+debian{{ ansible_distribution_major_version }}_all.deb"
@@ -95,15 +95,69 @@
       failed_when: false
       notify: reiniciar nginx
 
-    - name: Serviços ativos
+    - name: Descobre o serviço php-fpm instalado
+      ansible.builtin.shell: "systemctl list-unit-files 'php*-fpm.service' --no-legend | awk '{print $1}' | head -1"
+      register: php_fpm_svc
+      changed_when: false
+
+    - name: Remove o site default do nginx (evita conflito na porta 80)
+      ansible.builtin.file:
+        path: /etc/nginx/sites-enabled/default
+        state: absent
+      notify: reiniciar nginx
+
+    - name: Diretório de config do frontend
+      ansible.builtin.file:
+        path: /etc/zabbix/web
+        state: directory
+        owner: www-data
+        group: www-data
+        mode: "0755"
+
+    - name: Configura o frontend (zabbix.conf.php) para o painel e a API funcionarem
+      ansible.builtin.copy:
+        dest: /etc/zabbix/web/zabbix.conf.php
+        owner: www-data
+        group: www-data
+        mode: "0640"
+        content: |
+          <?php
+          // Gerado pelo vpsrun.
+          $DB['TYPE']          = 'MYSQL';
+          $DB['SERVER']        = 'localhost';
+          $DB['PORT']          = '0';
+          $DB['DATABASE']      = '{{ zabbix_db_name }}';
+          $DB['USER']          = '{{ zabbix_db_user }}';
+          $DB['PASSWORD']      = '{{ _zbx_db_pass }}';
+          $DB['SCHEMA']        = '';
+          $DB['ENCRYPTION']    = false;
+          $DB['VERIFY_HOST']   = false;
+          $DB['DOUBLE_IEEE754'] = true;
+          $ZBX_SERVER          = 'localhost';
+          $ZBX_SERVER_PORT     = '10051';
+          $ZBX_SERVER_NAME     = 'vpsrun';
+          $IMAGE_FORMAT_DEFAULT = IMAGE_FORMAT_PNG;
+      no_log: true
+      notify: reiniciar nginx
+
+    - name: Serviços ativos (inclui php-fpm detectado)
       ansible.builtin.systemd:
         name: "{{ item }}"
         enabled: true
         state: started
       loop:
+        - "{{ php_fpm_svc.stdout | trim }}"
         - zabbix-server
         - zabbix-agent2
         - nginx
+      when: item | length > 0
+
+    - name: Aguarda o Zabbix server abrir a porta 10051 (frontend/API dependem)
+      ansible.builtin.wait_for:
+        port: 10051
+        host: 127.0.0.1
+        timeout: 60
+      failed_when: false
 
     # ── Autoregistro: cria host group + ação que adota agentes ativos ────────
     - name: Configura autoregistro de agentes (via API)
@@ -154,6 +208,14 @@
                 templates:
                   - "{{ zabbix_linux_template }}"
           vars: *zbx_api
+      rescue:
+        - name: Autoregistro não configurado agora (não é fatal)
+          ansible.builtin.debug:
+            msg:
+              - "AVISO: não configurei o autoregistro via API automaticamente."
+              - "O Zabbix está instalado e no ar — isso não impede o uso."
+              - "Motivo: {{ ansible_failed_result.msg | default('a API do frontend ainda não respondeu') }}"
+              - "Depois rode de novo o playbook, ou crie a ação de autoregistro no frontend."
 
     - name: Resumo do servidor
       ansible.builtin.debug:
