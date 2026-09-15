@@ -93,11 +93,25 @@
       no_log: true
       notify: reiniciar zabbix-server
 
-    - name: Frontend nginx — habilita listen 80
+    - name: Verifica se a porta 80 já está ocupada (Apache, outro nginx, container…)
+      ansible.builtin.shell: "ss -ltn '( sport = :80 )' | grep -q LISTEN && echo busy || echo free"
+      register: _port80
+      changed_when: false
+
+    - name: Define a porta do frontend Zabbix (80 se livre; senão 8081)
+      ansible.builtin.set_fact:
+        _fe_port: "{{ zabbix_frontend_port if (zabbix_frontend_port is defined) else ('8081' if _port80.stdout == 'busy' else '80') }}"
+
+    - name: Aviso quando a porta 80 está ocupada
+      ansible.builtin.debug:
+        msg: "Porta 80 ocupada — o frontend do Zabbix vai subir na porta {{ _fe_port }} (ex.: http://IP:{{ _fe_port }}/zabbix)."
+      when: _fe_port != '80'
+
+    - name: Frontend nginx — define a porta de escuta
       ansible.builtin.lineinfile:
         path: /etc/zabbix/nginx.conf
         regexp: '^#?\s*listen'
-        line: "        listen          80;"
+        line: "        listen          {{ _fe_port }};"
       failed_when: false
       notify: reiniciar nginx
 
@@ -169,7 +183,8 @@
     - name: Configura autoregistro de agentes (API do Zabbix 7.0)
       when: zabbix_autoregistration_enabled | bool
       vars:
-        _api: "{{ zabbix_api_url }}/api_jsonrpc.php"
+        # Fala com o frontend local na porta que ele realmente subiu.
+        _api: "http://127.0.0.1:{{ _fe_port }}/zabbix/api_jsonrpc.php"
         _hdr: { Content-Type: "application/json-rpc" }
       block:
         - name: Aguarda a API do Zabbix responder
@@ -309,7 +324,7 @@
     - name: Resumo do servidor
       ansible.builtin.debug:
         msg:
-          - "Zabbix {{ zabbix_version }} instalado. Frontend nginx em http://{{ zabbix_server_ip }}/zabbix"
+          - "Zabbix {{ zabbix_version }} instalado. Frontend em http://{{ zabbix_server_ip }}{{ ':' + _fe_port if _fe_port != '80' else '' }}/zabbix"
           - "Login inicial: Admin / zabbix  (TROQUE no primeiro acesso)."
           - "Senha do banco '{{ zabbix_db_name }}': guarde no cofre → vpsrun vault add --group Monitoramento --app Zabbix --type db_password --value '{{ _zbx_db_pass }}'"
           - "Autoregistro: {{ 'ATIVO (agentes ativos entram sozinhos)' if zabbix_autoregistration_enabled else 'desligado' }}"
