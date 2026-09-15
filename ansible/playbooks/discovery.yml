@@ -50,7 +50,7 @@
       ansible.builtin.copy:
         dest: "{{ playbook_dir }}/../discovery-report.txt"
         content: |
-          Descoberta vpsrun — {{ ansible_date_time.iso8601 | default('') }}
+          Descoberta vpsrun — {{ lookup('pipe', 'date "+%Y-%m-%d %H:%M:%S"') }}
           Redes: {{ _cidrs | join(', ') }}
           Hosts vivos ({{ discovered_hosts | default([]) | length }}):
           {% for h in discovered_hosts | default([]) %}
